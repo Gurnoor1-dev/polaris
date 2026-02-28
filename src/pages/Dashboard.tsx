@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Clock, FileText, Award, Hash, Flame, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { isSameDay } from "date-fns";
-import aeroflotBanner from "@/assets/aeroflot-banner.jpg";
+import aeroflotBanner from "@/assets/aeroflot-banner1.jpg";
 import { TodayROTW } from "@/components/dashboard/TodayROTW";
 import { UpcomingEvents } from "@/components/dashboard/UpcomingEvents";
 import { NotamCard } from "@/components/dashboard/NotamCard";
