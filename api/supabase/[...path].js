@@ -1,9 +1,10 @@
 export default async function handler(req, res) {
+  const { path = [] } = req.query
   const supabaseUrl = process.env.SUPABASE_URL
 
-  const path = req.url.replace('/api/supabase', '')
+  const targetUrl = `${supabaseUrl}/${path.join('/')}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`
 
-  const response = await fetch(`${supabaseUrl}${path}`, {
+  const response = await fetch(targetUrl, {
     method: req.method,
     headers: {
       ...req.headers,
@@ -14,7 +15,7 @@ export default async function handler(req, res) {
       : req.body,
   })
 
-  const data = await response.arrayBuffer()
+  const buffer = await response.arrayBuffer()
 
   res.status(response.status)
 
@@ -22,5 +23,5 @@ export default async function handler(req, res) {
     res.setHeader(key, value)
   })
 
-  res.send(Buffer.from(data))
+  res.send(Buffer.from(buffer))
 }
