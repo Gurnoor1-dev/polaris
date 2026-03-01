@@ -258,9 +258,9 @@ export default function ApplyPage() {
           <Card className="w-full max-w-2xl">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4">
-              <img src={aeroflotLogo} alt="Koreanair Virtual" className="h-12 w-auto object-contain" />
+              <img src={aeroflotLogo} alt="Korean Air Virtual" className="h-12 w-auto object-contain" />
             </div>
-            <CardTitle className="text-2xl">Join Koreanair Virtual</CardTitle>
+            <CardTitle className="text-2xl">Join Korean Air Virtual</CardTitle>
             <CardDescription>
               Complete this form to apply for a pilot position with our virtual airline on Infinite Flight
             </CardDescription>
@@ -382,9 +382,9 @@ export default function ApplyPage() {
                     <Input id="otherVaMembership" value={otherVaMembership} onChange={(e) => setOtherVaMembership(e.target.value)} disabled={isLoading} required />
                   </div>
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="whyJoinLatour">Why you want to join LATOUR? *</Label>
+                    <Label htmlFor="whyJoinLatour">Why you want to join KEVA? *</Label>
                     <Input id="whyJoinLatour" value={whyJoinLatour} onChange={(e) => setWhyJoinLatour(e.target.value)} disabled={isLoading} required />
-                    <Label htmlFor="hearAboutLatour">Where did you hear about LATOUR? *</Label>
+                    <Label htmlFor="hearAboutLatour">Where did you hear about KEVA? *</Label>
                     <Input id="hearAboutLatour" value={hearAboutLatour} onChange={(e) => setHearAboutLatour(e.target.value)} disabled={isLoading} required />
                   </div>
                 </div>
