@@ -149,9 +149,9 @@ export default function AuthPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
         <div className="relative z-10 flex flex-col justify-end p-12">
-          <img src={logoSrc} alt="Koreanair Virtual" className="h-16 w-auto object-contain mb-4" />
+          <img src={logoSrc} alt="Korean Air Virtual" className="h-16 w-auto object-contain mb-4" />
           <p className="text-lg text-foreground/90 max-w-md">
-            Welcome to the professional crew management system for Koreanair Virtual pilots on Infinite Flight.
+            Welcome to the professional crew management system for Korean Air Virtual pilots on Infinite Flight.
           </p>
         </div>
       </div>
