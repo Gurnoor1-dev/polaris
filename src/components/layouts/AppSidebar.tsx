@@ -19,13 +19,10 @@ const ICON_MAP: Record<string, any> = {
 
 const pilotNavItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Routes of the Week", url: "/rotw", icon: Star },
   { title: "File PIREP", url: "/file-pirep", icon: FileText },
   { title: "PIREP History", url: "/pirep-history", icon: History },
   { title: "Routes", url: "/routes", icon: Route },
-  { title: "Challenges", url: "/challenges", icon: Target },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
-  { title: "Events", url: "/events", icon: Calendar },
   { title: "Details", url: "/details", icon: Info },
   { title: "Tracker", url: "/tracker", icon: MapPin },
   { title: "Academy", url: "/academy", icon: BookOpen },
@@ -35,14 +32,11 @@ const pilotNavItems = [
 const adminNavItems = [
   { title: "PIREPs", url: "/admin/pireps", icon: FileText },
   { title: "Routes", url: "/admin/routes", icon: Route },
-  { title: "ROTW", url: "/admin/rotw", icon: Star },
-  { title: "Events", url: "/admin/events", icon: Calendar },
   { title: "Aircraft", url: "/admin/aircraft", icon: Plane },
   { title: "Ranks", url: "/admin/ranks", icon: Award },
   { title: "Multipliers", url: "/admin/multipliers", icon: Zap },
   { title: "NOTAMs", url: "/admin/notams", icon: AlertTriangle },
   { title: "Members", url: "/admin/members", icon: Users },
-  { title: "Challenges", url: "/admin/challenges", icon: Target },
   { title: "Announcements", url: "/admin/announcements", icon: Megaphone },
   { title: "Applications", url: "/admin/applications", icon: Users },
   { title: "Settings", url: "/admin/settings", icon: Settings },
