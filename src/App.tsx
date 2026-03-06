@@ -9,7 +9,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
-import { AppLoader } from "@/components/AppLoader";
+
+/* Pages */
 
 const AuthPage = lazy(() => import("@/pages/Auth"));
 const ApplyPage = lazy(() => import("@/pages/Apply"));
@@ -23,6 +24,14 @@ const Events = lazy(() => import("@/pages/Events"));
 const Details = lazy(() => import("@/pages/Details"));
 const Challenges = lazy(() => import("@/pages/Challenges"));
 const Tracker = lazy(() => import("@/pages/Tracker"));
+const Academy = lazy(() => import("@/pages/Academy"));
+const AcademyCourse = lazy(() => import("@/pages/AcademyCourse"));
+const AcademyExam = lazy(() => import("@/pages/AcademyExam"));
+const ActivityPage = lazy(() => import("@/pages/Activity"));
+const ProfileSettings = lazy(() => import("@/pages/ProfileSettings"));
+
+/* Admin Pages */
+
 const AdminPireps = lazy(() => import("@/pages/admin/AdminPireps"));
 const AdminRoutes = lazy(() => import("@/pages/admin/AdminRoutes"));
 const AdminROTW = lazy(() => import("@/pages/admin/AdminROTW"));
@@ -39,18 +48,21 @@ const AdminAnnouncements = lazy(() => import("@/pages/admin/AdminAnnouncements")
 const AdminSidebarLinks = lazy(() => import("@/pages/admin/AdminSidebarLinks"));
 const AdminAcademy = lazy(() => import("@/pages/admin/AdminAcademy"));
 const AdminActivity = lazy(() => import("@/pages/admin/AdminActivity"));
-const Academy = lazy(() => import("@/pages/Academy"));
-const AcademyCourse = lazy(() => import("@/pages/AcademyCourse"));
-const AcademyExam = lazy(() => import("@/pages/AcademyExam"));
-const ActivityPage = lazy(() => import("@/pages/Activity"));
-const ProfileSettings = lazy(() => import("@/pages/ProfileSettings"));
+
+/* NEW ATC SYSTEM */
+
+const AtcPirep = lazy(() => import("@/pages/AtcPirep"));
+const AdminAtcPireps = lazy(() => import("@/pages/admin/AdminAtcPireps"));
+
 const NotFound = lazy(() => import("@/pages/NotFound"));
+
+/* Query Client */
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60 * 1000,
+      staleTime: 30000,
+      gcTime: 300000,
       refetchOnWindowFocus: false,
       retry: 1,
       throwOnError: false,
@@ -64,7 +76,6 @@ const queryClient = new QueryClient({
 const RouteScopedErrorBoundary = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
   const resetKey = `${location.pathname}${location.search}`;
-
   return <AppErrorBoundary resetKey={resetKey}>{children}</AppErrorBoundary>;
 };
 
@@ -80,15 +91,24 @@ const App = () => (
               <RouteScopedErrorBoundary>
                 <Suspense fallback={null}>
                   <Routes>
+
                     <Route path="/auth" element={<AuthPage />} />
                     <Route path="/apply" element={<ApplyPage />} />
                     <Route path="/academy/exam/:examId" element={<AcademyExam />} />
+
                     <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+
                       <Route index element={<Dashboard />} />
-                      <Route path="rotw" element={<RoutesOfTheWeek />} />
+
                       <Route path="file-pirep" element={<FilePirep />} />
                       <Route path="pirep-history" element={<PirepHistory />} />
+
+                      {/* NEW ATC PIREP PAGE */}
+
+                      <Route path="atc-pirep" element={<AtcPirep />} />
+
                       <Route path="routes" element={<RoutesPage />} />
+                      <Route path="rotw" element={<RoutesOfTheWeek />} />
                       <Route path="leaderboard" element={<Leaderboard />} />
                       <Route path="events" element={<Events />} />
                       <Route path="details" element={<Details />} />
@@ -98,7 +118,12 @@ const App = () => (
                       <Route path="academy/course/:courseId" element={<AcademyCourse />} />
                       <Route path="activity" element={<ActivityPage />} />
                       <Route path="profile" element={<ProfileSettings />} />
+
+                      {/* ADMIN */}
+
                       <Route path="admin/pireps" element={<AdminPireps />} />
+                      <Route path="admin/atc-pireps" element={<AdminAtcPireps />} />
+
                       <Route path="admin/routes" element={<AdminRoutes />} />
                       <Route path="admin/rotw" element={<AdminROTW />} />
                       <Route path="admin/events" element={<AdminEvents />} />
@@ -114,8 +139,11 @@ const App = () => (
                       <Route path="admin/sidebar-links" element={<AdminSidebarLinks />} />
                       <Route path="admin/academy" element={<AdminAcademy />} />
                       <Route path="admin/activity" element={<AdminActivity />} />
+
                     </Route>
+
                     <Route path="*" element={<NotFound />} />
+
                   </Routes>
                 </Suspense>
               </RouteScopedErrorBoundary>
