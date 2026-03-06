@@ -53,6 +53,7 @@ const AdminActivity = lazy(() => import("@/pages/admin/AdminActivity"));
 
 const FileAtcPirep = lazy(() => import("@/pages/FileAtcPirep"));
 const AdminAtcPireps = lazy(() => import("@/pages/admin/AdminAtcPireps"));
+const AtcHistory = lazy(() => import("@/pages/AtcHistory"));
 
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
@@ -101,6 +102,7 @@ const App = () => (
                       <Route index element={<Dashboard />} />
 
                       <Route path="file-pirep" element={<FilePirep />} />
+                      <Route path="atc-history" element={<AtcHistory />} />
                       <Route path="pirep-history" element={<PirepHistory />} />
 
                       {/* NEW ATC PIREP PAGE */}
