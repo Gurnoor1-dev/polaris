@@ -1,25 +1,79 @@
 import { useLocation, Link } from "react-router-dom";
 import {
-  LayoutDashboard, FileText, History, Route, Trophy, Calendar, Info, Shield, Users, Star, Plane, Award, Zap, Settings, AlertTriangle, Target, Megaphone, Link as LinkIcon, Globe, MessageCircle, ExternalLink, BookOpen, HelpCircle, MapPin, Activity,
+  LayoutDashboard,
+  FileText,
+  History,
+  Route,
+  Trophy,
+  Calendar,
+  Info,
+  Shield,
+  Users,
+  Star,
+  Plane,
+  Award,
+  Zap,
+  Settings,
+  AlertTriangle,
+  Target,
+  Megaphone,
+  Link as LinkIcon,
+  Globe,
+  MessageCircle,
+  ExternalLink,
+  BookOpen,
+  HelpCircle,
+  MapPin,
+  Activity,
+  Radio,
+  Clock,
+  RadioTower,
 } from "lucide-react";
+
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+
 import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter, useSidebar,
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarHeader,
+  SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
+
 import aeroflotLogo from "@/assets/aeroflot-logo.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const ICON_MAP: Record<string, any> = {
-  Link: LinkIcon, Globe, MessageCircle, ExternalLink, BookOpen, HelpCircle, Star, Plane, Award, Calendar, Trophy, Target,
+  Link: LinkIcon,
+  Globe,
+  MessageCircle,
+  ExternalLink,
+  BookOpen,
+  HelpCircle,
+  Star,
+  Plane,
+  Award,
+  Calendar,
+  Trophy,
+  Target,
 };
 
 const pilotNavItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "File PIREP", url: "/file-pirep", icon: FileText },
+
+  { title: "File ATC PIREP", url: "/file-atc-pirep", icon: Radio },
+  { title: "ATC History", url: "/atc-history", icon: Clock },
+
   { title: "PIREP History", url: "/pirep-history", icon: History },
   { title: "Routes", url: "/routes", icon: Route },
   { title: "Leaderboard", url: "/leaderboard", icon: Trophy },
@@ -31,6 +85,8 @@ const pilotNavItems = [
 
 const adminNavItems = [
   { title: "PIREPs", url: "/admin/pireps", icon: FileText },
+  { title: "ATC PIREPs", url: "/admin/atc-pireps", icon: RadioTower },
+
   { title: "Routes", url: "/admin/routes", icon: Route },
   { title: "Aircraft", url: "/admin/aircraft", icon: Plane },
   { title: "Ranks", url: "/admin/ranks", icon: Award },
@@ -59,6 +115,7 @@ export function AppSidebar() {
         .select("*")
         .eq("is_active", true)
         .order("sort_order");
+
       return data ?? [];
     },
     staleTime: Infinity,
@@ -75,6 +132,7 @@ export function AppSidebar() {
         .select("value")
         .eq("key", "sidebar_logo_url")
         .maybeSingle();
+
       return data?.value || "";
     },
     staleTime: Infinity,
@@ -89,27 +147,37 @@ export function AppSidebar() {
   };
 
   const handleNavClick = () => {
-    if (isMobile) {
-      setOpenMobile(false);
-    }
+    if (isMobile) setOpenMobile(false);
   };
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
         <div className={cn("flex items-center gap-3 px-3 py-2", isCollapsed && "justify-center")}>
-          <img src={logoSrc} alt="Koreanair Virtual" className={cn("w-auto object-contain", isCollapsed ? "h-8" : "h-10")} />
+          <img
+            src={logoSrc}
+            alt="Koreanair Virtual"
+            className={cn("w-auto object-contain", isCollapsed ? "h-8" : "h-10")}
+          />
         </div>
       </SidebarHeader>
 
       <SidebarContent className="pb-2 scrollbar-hide">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
+            Navigation
+          </SidebarGroupLabel>
+
           <SidebarGroupContent>
             <SidebarMenu>
               {pilotNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title} className="h-9">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive(item.url)}
+                    tooltip={item.title}
+                    className="h-9"
+                  >
                     <Link to={item.url} onClick={handleNavClick}>
                       <item.icon className="h-4 w-4" />
                       <span className="text-sm">{item.title}</span>
@@ -123,17 +191,26 @@ export function AppSidebar() {
 
         {customLinks.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Links</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
+              Links
+            </SidebarGroupLabel>
+
             <SidebarGroupContent>
               <SidebarMenu>
                 {customLinks.map((link: any) => {
                   const Icon = ICON_MAP[link.icon] || LinkIcon;
                   const isExternal = link.url.startsWith("http");
+
                   return (
                     <SidebarMenuItem key={link.id}>
                       <SidebarMenuButton asChild tooltip={link.title} className="h-9">
                         {isExternal ? (
-                          <a href={link.url} target="_blank" rel="noopener noreferrer" onClick={handleNavClick}>
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={handleNavClick}
+                          >
                             <Icon className="h-4 w-4" />
                             <span className="text-sm">{link.title}</span>
                           </a>
@@ -155,13 +232,20 @@ export function AppSidebar() {
         {isAdmin && (
           <SidebarGroup>
             <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">
-              <Shield className="h-3 w-3 mr-1" />Admin
+              <Shield className="h-3 w-3 mr-1" />
+              Admin
             </SidebarGroupLabel>
+
             <SidebarGroupContent>
               <SidebarMenu>
                 {adminNavItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title} className="h-9">
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url)}
+                      tooltip={item.title}
+                      className="h-9"
+                    >
                       <Link to={item.url} onClick={handleNavClick}>
                         <item.icon className="h-4 w-4" />
                         <span className="text-sm">{item.title}</span>
@@ -185,9 +269,15 @@ export function AppSidebar() {
                   {pilot.full_name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
+
               <div className="flex flex-col">
-                <span className="text-xs font-medium text-sidebar-foreground">{pilot.pid}</span>
-                <span className="text-xs text-sidebar-foreground/70 capitalize">{pilot.current_rank.replace(/_/g, " ")}</span>
+                <span className="text-xs font-medium text-sidebar-foreground">
+                  {pilot.pid}
+                </span>
+
+                <span className="text-xs text-sidebar-foreground/70 capitalize">
+                  {pilot.current_rank.replace(/_/g, " ")}
+                </span>
               </div>
             </div>
           </div>
