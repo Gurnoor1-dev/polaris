@@ -43,7 +43,6 @@ export default function FilePirep() {
   
   // Operator Logic
   const [operator, setOperator] = useState("");
-  const [isOtherOperator, setIsOtherOperator] = useState(false);
   const [otherOperatorName, setOtherOperatorName] = useState("");
 
   const [flightType, setFlightType] = useState<"passenger" | "cargo">("passenger");
@@ -75,9 +74,14 @@ export default function FilePirep() {
     queryFn: async () => {
       const { data } = await supabase.from("site_settings").select("value").eq("key", "pirep_operators").maybeSingle();
       if (data?.value) {
-        try { return JSON.parse(data.value) as string[]; } catch { return defaultOperators; }
+        try { 
+          const list = JSON.parse(data.value) as string[];
+          return list.includes("Others") ? list : [...list, "Others"];
+        } catch { 
+          return [...defaultOperators, "Others"]; 
+        }
       }
-      return defaultOperators;
+      return [...defaultOperators, "Others"];
     },
   });
 
@@ -185,7 +189,7 @@ export default function FilePirep() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalOperator = isOtherOperator ? otherOperatorName : operator;
+    const finalOperator = operator === "Others" ? otherOperatorName : operator;
     const hoursNum = parseFloat(fHours) || 0;
     const minsNum = parseFloat(fMinutes) || 0;
     const totalDecimalHours = hoursNum + (minsNum / 60);
@@ -355,20 +359,26 @@ export default function FilePirep() {
               <h3 className="text-sm font-medium text-muted-foreground">Operator & Classification</h3>
               <div className="grid gap-4 md:grid-cols-1">
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Operator *</Label>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox id="otherOp" checked={isOtherOperator} onCheckedChange={(checked) => setIsOtherOperator(!!checked)} />
-                      <Label htmlFor="otherOp" className="text-xs cursor-pointer">Others</Label>
+                  <Label>Operator *</Label>
+                  <Select value={operator} onValueChange={setOperator} disabled={isLoading}>
+                    <SelectTrigger><SelectValue placeholder="Select operator" /></SelectTrigger>
+                    <SelectContent>
+                      {(operators || defaultOperators).map((op) => (
+                        <SelectItem key={op} value={op}>{op}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  {operator === "Others" && (
+                    <div className="animate-in slide-in-from-top-2 duration-300">
+                      <Input 
+                        placeholder="Enter Operator Name" 
+                        value={otherOperatorName} 
+                        onChange={(e) => setOtherOperatorName(e.target.value)} 
+                        required 
+                      />
                     </div>
-                  </div>
-                  <div className={cn("transition-all duration-200", isOtherOperator ? "opacity-40 pointer-events-none" : "opacity-100")}>
-                    <Select value={operator} onValueChange={setOperator} disabled={isLoading || isOtherOperator}>
-                      <SelectTrigger><SelectValue placeholder="Select operator" /></SelectTrigger>
-                      <SelectContent>{(operators || defaultOperators).map((op) => <SelectItem key={op} value={op}>{op}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  {isOtherOperator && <div className="animate-in slide-in-from-top-2 duration-300"><Input placeholder="Enter Operator Name" value={otherOperatorName} onChange={(e) => setOtherOperatorName(e.target.value)} required /></div>}
+                  )}
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
