@@ -2,20 +2,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Clock, FileText, Award, Hash, Flame, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { isSameDay } from "date-fns";
-import aeroflotBanner from "@/assets/aeroflot-banner1.jpg";
+import aeroflotBanner from "@/assets/aeroflot-banner.jpg";
 import { TodayROTW } from "@/components/dashboard/TodayROTW";
 import { UpcomingEvents } from "@/components/dashboard/UpcomingEvents";
 import { NotamCard } from "@/components/dashboard/NotamCard";
 import { Announcements } from "@/components/dashboard/Announcements";
 import { DailyFeaturedRoutes } from "@/components/dashboard/DailyFeaturedRoutes";
-import { StatusBadge } from "@/components/StatusBadge";
 
 export default function Dashboard() {
   const { pilot } = useAuth();
@@ -55,7 +53,6 @@ export default function Dashboard() {
       return data || [];
     },
     enabled: !!pilot?.id,
-    refetchInterval: 30_000,
   });
 
   const { data: streak } = useQuery({
@@ -70,23 +67,6 @@ export default function Dashboard() {
       return data;
     },
     enabled: !!pilot?.id,
-    refetchInterval: 60_000,
-  });
-
-  // Calculate approved flight hours from PIREPs (with multiplier)
-  const { data: approvedHours } = useQuery({
-    queryKey: ["approved-flight-hours", pilot?.id],
-    queryFn: async () => {
-      if (!pilot?.id) return 0;
-      const { data } = await supabase
-        .from("pireps")
-        .select("flight_hours, multiplier")
-        .eq("pilot_id", pilot.id)
-        .eq("status", "approved");
-      return data?.reduce((sum, p) => sum + Number(p.flight_hours) * Number(p.multiplier || 1), 0) || 0;
-    },
-    enabled: !!pilot?.id,
-    refetchInterval: 60_000,
   });
 
   const formatFlightTime = (hours: number) => {
@@ -100,20 +80,19 @@ export default function Dashboard() {
     return rank?.label || rankName.replace(/_/g, " ");
   };
 
-  const totalHours = Number(approvedHours ?? pilot.total_hours ?? 0);
-  const sortedRanks = [...(ranks || [])].sort((a, b) => a.order_index - b.order_index);
-  const currentRankConfig = sortedRanks.find((r) => r.name === pilot.current_rank);
-  const nextRankConfig = sortedRanks.find((r) => r.order_index > (currentRankConfig?.order_index ?? -1));
-  const currentMin = Number(currentRankConfig?.min_hours ?? 0);
-  const nextMin = Number(nextRankConfig?.min_hours ?? currentMin);
-  const hoursInCurrentBand = Math.max(0, totalHours - currentMin);
-  const hoursRequiredForNext = Math.max(1, nextMin - currentMin);
-  const rankProgressPercent = nextRankConfig
-    ? Math.min(100, Math.round((hoursInCurrentBand / hoursRequiredForNext) * 100))
-    : 100;
-
-  const streakMilestones = [3, 7, 14, 30, 60];
-  const currentStreak = Number(streak?.current_streak || 0);
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, string> = {
+      pending: "status-pending",
+      approved: "status-approved",
+      denied: "status-denied",
+      on_hold: "status-on-hold",
+    };
+    return (
+      <Badge variant="outline" className={variants[status] || ""}>
+        {status.replace("_", " ").toUpperCase()}
+      </Badge>
+    );
+  };
 
   const getDayName = (dayIndex: number) => {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -172,23 +151,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium">Rank Progress</p>
-            <p className="text-xs text-muted-foreground">
-              {nextRankConfig ? `${totalHours.toFixed(1)}h / ${nextMin}h` : "Max rank reached"}
-            </p>
-          </div>
-          <Progress value={rankProgressPercent} className="h-2" />
-          <p className="text-xs text-muted-foreground mt-2">
-            {nextRankConfig
-              ? `${Math.max(0, nextMin - totalHours).toFixed(1)}h remaining to ${nextRankConfig.label}`
-              : "You are at the highest available rank."}
-          </p>
-        </CardContent>
-      </Card>
-
       {/* Announcements */}
       <Announcements />
 
@@ -227,7 +189,7 @@ export default function Dashboard() {
                   Flight Time
                 </p>
                 <p className="text-2xl font-bold mt-1">
-                  {formatFlightTime(approvedHours ?? pilot.total_hours)}
+                  {formatFlightTime(pilot.total_hours)}
                 </p>
               </div>
               <Clock className="h-5 w-5 text-muted-foreground" />
@@ -292,16 +254,6 @@ export default function Dashboard() {
                       </p>
                     </div>
                   </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {streakMilestones.map((milestone) => {
-                    const achieved = currentStreak >= milestone;
-                    return (
-                      <Badge key={milestone} variant={achieved ? "default" : "outline"}>
-                        {achieved ? "🏅" : "🔒"} {milestone}d
-                      </Badge>
-                    );
-                  })}
                 </div>
               </div>
 
@@ -384,7 +336,7 @@ export default function Dashboard() {
                         <td className="px-4 py-3">{pirep.dep_icao}</td>
                         <td className="px-4 py-3">{pirep.arr_icao}</td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={pirep.status} classMap={{ on_hold: "status-on-hold" }} />
+                          {getStatusBadge(pirep.status)}
                         </td>
                       </tr>
                     ))
