@@ -16,6 +16,7 @@ import { CalendarIcon, Loader2, Plane } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatPirepTime, sendDiscordEmbed } from "@/lib/discord-notify";
 
 const defaultOperators = [
   "Aeroflot", "Azerbaijan Airlines", "Uzbekistan Airways", "Belavia",
@@ -34,17 +35,12 @@ export default function FilePirep() {
   const [aircraftIcao, setAircraftIcao] = useState("");
   const [selectedAircraftLabel, setSelectedAircraftLabel] = useState("");
   
-  // Split Flight Time
   const [fHours, setFHours] = useState("");
   const [fMinutes, setFMinutes] = useState("");
-  
   const [flightDate, setFlightDate] = useState<Date | undefined>(new Date());
   const [selectedMultiplier, setSelectedMultiplier] = useState("1");
-  
-  // Operator Logic
   const [operator, setOperator] = useState("");
   const [otherOperatorName, setOtherOperatorName] = useState("");
-
   const [flightType, setFlightType] = useState<"passenger" | "cargo">("passenger");
   const [pax, setPax] = useState("");
   const [cargoKg, setCargoKg] = useState("");
@@ -198,12 +194,10 @@ export default function FilePirep() {
     if (!flightNumber || !depIcao || !arrIcao || !aircraftIcao || !flightDate || !finalOperator) {
       toast.error("Please fill in all required fields"); return;
     }
-    if (!isEventOrRotw && !showAllAircraft && unlockedAircraftIcaos && !unlockedAircraftIcaos.includes(aircraftIcao.toUpperCase())) {
-      toast.error("This aircraft is not unlocked for your rank"); return;
-    }
     if (totalDecimalHours <= 0 || totalDecimalHours > 24) {
       toast.error("Please enter valid flight time (0-24h)"); return;
     }
+    
     const paxValue = pax.trim() === "" ? null : Number(pax);
     const cargoKgValue = cargoKg.trim() === "" ? null : Number(cargoKg);
 
@@ -223,25 +217,18 @@ export default function FilePirep() {
         pax: paxValue,
         cargo_kg: cargoKgValue,
       });
+
       if (error) throw error;
-      try {
-        await supabase.functions.invoke("discord-rank-notification", {
-          body: {
-            type: "new_pirep",
-            pilot_name: pilot.full_name,
-            pid: pilot.pid,
-            flight_number: flightNumber.toUpperCase(),
-            dep_icao: depIcao.toUpperCase(),
-            arr_icao: arrIcao.toUpperCase(),
-            aircraft_icao: aircraftIcao,
-            flight_hours: totalDecimalHours,
-            operator: finalOperator,
-            flight_type: flightType,
-            pax: paxValue,
-            cargo_kg: cargoKgValue,
-          },
-        });
-      } catch (discordErr) { console.error("Discord notification failed:", discordErr); }
+
+      // Discord Notification
+      const totalHoursWithMulti = totalDecimalHours * currentMultiplierValue;
+      
+      await sendDiscordEmbed({
+        title: "🛫 New PIREP Submitted",
+        color: 3447003,
+        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://your-site.com/pireps)`
+      });
+
       toast.success("PIREP submitted successfully!");
       navigate("/pirep-history");
     } catch (err) {
