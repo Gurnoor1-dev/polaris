@@ -17,7 +17,7 @@ export const sendDiscordEmbed = async (embed: any) => {
         embeds: [{
           ...embed,
           footer: {
-            text: `Powered by VACompany | ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            text: `Powered by VACompany`
           },
           timestamp: new Date().toISOString()
         }]
