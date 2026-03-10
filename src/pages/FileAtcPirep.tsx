@@ -51,7 +51,7 @@ export default function FileAtcPirep(){
     await sendDiscordEmbed({
       title: "📡 New ATC PIREP Submitted",
       color: 15105570,
-      description: `\n👨‍✈️ **Controller:** ${pilot?.full_name || 'Pilot'} (${pilot?.pid || pilot?.callsign || 'N/A'}*)\n\n✈️ **Airport:** ${icao.toUpperCase()}\n\n⏱️ **Session:** ${open} — ${close}\n\n[View ATC PIREP](https://your-site.com/atc-log)`
+      description: `\n👨‍✈️ **Controller:** ${pilot?.full_name || 'Pilot'} (${pilot?.pid || pilot?.callsign || 'N/A'}*)\n\n✈️ **Airport:** ${icao.toUpperCase()}\n\n⏱️ **Session:** ${open} — ${close}\n\n[View ATC PIREP](https://www.crewcenterkeva.com/admin/atc-pirep)`
     });
 
     setLoading(false)
