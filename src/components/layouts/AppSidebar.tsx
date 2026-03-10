@@ -84,21 +84,24 @@ const pilotNavItems = [
 ];
 
 const adminNavItems = [
-  { title: "PIREPs", url: "/admin/pireps", icon: FileText },
-  { title: "ATC PIREPs", url: "/admin/atc-pireps", icon: RadioTower },
-
-  { title: "Routes", url: "/admin/routes", icon: Route },
-  { title: "Aircraft", url: "/admin/aircraft", icon: Plane },
-  { title: "Ranks", url: "/admin/ranks", icon: Award },
-  { title: "Multipliers", url: "/admin/multipliers", icon: Zap },
-  { title: "NOTAMs", url: "/admin/notams", icon: AlertTriangle },
-  { title: "Members", url: "/admin/members", icon: Users },
   { title: "Announcements", url: "/admin/announcements", icon: Megaphone },
+  { title: "NOTAMs", url: "/admin/notams", icon: AlertTriangle },
+  
+  { title: "ATC PIREPs", url: "/admin/atc-pireps", icon: RadioTower },
+  { title: "PIREPs", url: "/admin/pireps", icon: FileText },
+  
+  { title: "Aircraft", url: "/admin/aircraft", icon: Plane },
+  { title: "Multipliers", url: "/admin/multipliers", icon: Zap },
+  { title: "Ranks", url: "/admin/ranks", icon: Award },
+  { title: "Routes", url: "/admin/routes", icon: Route },
+
+  { title: "Sidebar Links", url: "/admin/sidebar-links", icon: LinkIcon },
+  { title: "Activity", url: "/admin/activity", icon: Activity },
+  
+  { title: "Academy", url: "/admin/academy", icon: BookOpen },
+  { title: "Members", url: "/admin/members", icon: Users },
   { title: "Applications", url: "/admin/applications", icon: Users },
   { title: "Settings", url: "/admin/settings", icon: Settings },
-  { title: "Sidebar Links", url: "/admin/sidebar-links", icon: LinkIcon },
-  { title: "Academy", url: "/admin/academy", icon: BookOpen },
-  { title: "Activity", url: "/admin/activity", icon: Activity },
 ];
 
 export function AppSidebar() {
