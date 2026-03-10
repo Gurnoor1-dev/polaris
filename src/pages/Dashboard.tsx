@@ -164,6 +164,21 @@ export default function Dashboard() {
       <TodayROTW />
 
       {/* Stats Cards */}
+      <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                  Callsign
+                </p>
+                <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
+              </div>
+              <Hash className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -186,6 +201,20 @@ export default function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                  PIREPs
+                </p>
+                <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
+              </div>
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+
+      <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">
                   Flight Time
                 </p>
                 <p className="text-2xl font-bold mt-1">
@@ -196,35 +225,6 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  PIREPs
-                </p>
-                <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
-              </div>
-              <FileText className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Callsign
-                </p>
-                <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
-              </div>
-              <Hash className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Two Column Layout for Streak and Events */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
