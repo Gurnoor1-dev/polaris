@@ -226,7 +226,7 @@ export default function FilePirep() {
       await sendDiscordEmbed({
         title: "🛫 New PIREP Submitted",
         color: 3447003,
-        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://your-site.com/pireps)`
+        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://www.crewcenterkeva.com/admin/pireps)`
       });
 
       toast.success("PIREP submitted successfully!");
