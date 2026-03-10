@@ -163,69 +163,73 @@ export default function Dashboard() {
       {/* Today's ROTW */}
       <TodayROTW />
 
-      {/* Stats Cards */}
-      <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Callsign
-                </p>
-                <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
-              </div>
-              <Hash className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats Cards Row */}
+<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+  {/* Callsign */}
+  <Card>
+    <CardContent className="p-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+            Callsign
+          </p>
+          <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
+        </div>
+        <Hash className="h-5 w-5 text-muted-foreground" />
       </div>
+    </CardContent>
+  </Card>
+
+  {/* Rank */}
+  <Card>
+    <CardContent className="p-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+            Rank
+          </p>
+          <p className="text-2xl font-bold mt-1 capitalize">
+            {getRankLabel(pilot.current_rank)}
+          </p>
+        </div>
+        <Award className="h-5 w-5 text-muted-foreground" />
+      </div>
+    </CardContent>
+  </Card>
+
+  {/* PIREPs */}
+  <Card>
+    <CardContent className="p-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+            Total PIREPs
+          </p>
+          <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
+        </div>
+        <FileText className="h-5 w-5 text-muted-foreground" />
+      </div>
+    </CardContent>
+  </Card>
+
+  {/* Flight Time */}
+  <Card>
+    <CardContent className="p-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+            Flight Time
+          </p>
+          <p className="text-2xl font-bold mt-1">
+            {formatFlightTime(pilot.total_hours)}
+          </p>
+        </div>
+        <Clock className="h-5 w-5 text-muted-foreground" />
+      </div>
+    </CardContent>
+  </Card>
+</div>
       
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Rank
-                </p>
-                <p className="text-2xl font-bold mt-1 capitalize">
-                  {getRankLabel(pilot.current_rank)}
-                </p>
-              </div>
-              <Award className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  PIREPs
-                </p>
-                <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
-              </div>
-              <FileText className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-
-      <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                  Flight Time
-                </p>
-                <p className="text-2xl font-bold mt-1">
-                  {formatFlightTime(pilot.total_hours)}
-                </p>
-              </div>
-              <Clock className="h-5 w-5 text-muted-foreground" />
-            </div>
-          </CardContent>
-        </Card>
-
       {/* Two Column Layout for Streak and Events */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Streak Card */}
