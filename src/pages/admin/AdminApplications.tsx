@@ -146,7 +146,7 @@ export default function AdminApplications() {
         <div>
           <h1 className="text-2xl font-bold">Pilot Applications</h1>
           <p className="text-muted-foreground">
-            Review pending applications and rejected history (approved applications are hidden)
+            Review pending KEVA applications and history
             {pendingCount > 0 && (
               <Badge className="ml-2" variant="secondary">
                 {pendingCount} pending
@@ -161,7 +161,6 @@ export default function AdminApplications() {
         </div>
       </div>
 
-      {/* Search */}
       <Card>
         <CardContent className="pt-6">
           <div className="relative">
@@ -176,11 +175,10 @@ export default function AdminApplications() {
         </CardContent>
       </Card>
 
-      {/* Applications Table */}
       <Card>
         <CardHeader>
           <CardTitle>Applications</CardTitle>
-          <CardDescription>{filteredApps?.length || 0} applications</CardDescription>
+          <CardDescription>{filteredApps?.length || 0} total applications</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -275,28 +273,22 @@ export default function AdminApplications() {
           <DialogHeader>
             <DialogTitle>Approve Application</DialogTitle>
             <DialogDescription>
-              Assign a Pilot ID to {selectedApp?.full_name}
+              Assign a Pilot ID to {selectedApp?.full_name} for KEVA
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-4 bg-muted rounded-lg text-sm">
               <p><strong>Name:</strong> {selectedApp?.full_name}</p>
-              <p><strong>Email:</strong> {selectedApp?.email}</p>
-              <p><strong>Discord Username:</strong> {selectedApp?.discord_username || "N/A"}</p>
+              <p><strong>Discord:</strong> {selectedApp?.discord_username || "N/A"}</p>
               <p><strong>IF Grade:</strong> {selectedApp?.if_grade || selectedApp?.experience_level}</p>
-              <p><strong>IFATC:</strong> {selectedApp?.is_ifatc || selectedApp?.preferred_simulator}</p>
-              <p><strong>IFC Trust Level:</strong> {selectedApp?.ifc_trust_level || "N/A"}</p>
-              <p><strong>Age Range:</strong> {selectedApp?.age_range || "N/A"}</p>
-              <p><strong>Other VA/VO:</strong> {selectedApp?.other_va_membership || "N/A"}</p>
-              <p><strong>Heard About LATOUR:</strong> {selectedApp?.hear_about_aflv || "N/A"}</p>
-              {selectedApp?.ifc_profile_url && <p><strong>IFC Username:</strong> {selectedApp?.ifc_profile_url}</p>}
+              <p><strong>Heard About KEVA:</strong> {selectedApp?.hear_about_aflv || "N/A"}</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Assigned PID</label>
               <Input
                 value={assignedPid}
                 onChange={(e) => setAssignedPid(e.target.value.toUpperCase())}
-                placeholder="AFLV0001"
+                placeholder="KEVA0001"
               />
             </div>
           </div>
@@ -320,7 +312,7 @@ export default function AdminApplications() {
           <DialogHeader>
             <DialogTitle>Reject Application</DialogTitle>
             <DialogDescription>
-              Provide a reason for rejecting {selectedApp?.full_name}'s application
+              Enter the reason for rejecting {selectedApp?.full_name}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -348,62 +340,42 @@ export default function AdminApplications() {
 
       {/* View Details Dialog */}
       <Dialog open={!!selectedApp && !actionType} onOpenChange={() => setSelectedApp(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Application Details</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-muted-foreground">Name</p>
+                <p className="text-muted-foreground text-xs">Name</p>
                 <p className="font-medium">{selectedApp?.full_name}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Email</p>
+                <p className="text-muted-foreground text-xs">Email</p>
                 <p className="font-medium">{selectedApp?.email}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">IF Grade</p>
-                <p className="font-medium">{selectedApp?.if_grade || selectedApp?.experience_level}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">IFATC</p>
-                <p className="font-medium">{selectedApp?.is_ifatc || selectedApp?.preferred_simulator}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Discord Username</p>
+                <p className="text-muted-foreground text-xs">Discord</p>
                 <p className="font-medium">{selectedApp?.discord_username || "N/A"}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">IFC Trust Level</p>
-                <p className="font-medium">{selectedApp?.ifc_trust_level || "N/A"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Age Range</p>
+                <p className="text-muted-foreground text-xs">Age Range</p>
                 <p className="font-medium">{selectedApp?.age_range || "N/A"}</p>
               </div>
-              <div>
-                <p className="text-muted-foreground">Other VA/VO</p>
-                <p className="font-medium">{selectedApp?.other_va_membership || "N/A"}</p>
-              </div>
               <div className="col-span-2">
-                <p className="text-muted-foreground">IFC Profile URL</p>
-                <p className="font-medium break-all">{selectedApp?.ifc_profile_url || "N/A"}</p>
-              </div>
-              <div className="col-span-2">
-                <p className="text-muted-foreground">Where did you hear about LATOUR?</p>
+                <p className="text-muted-foreground text-xs">Heard About KEVA</p>
                 <p className="font-medium">{selectedApp?.hear_about_aflv || "N/A"}</p>
               </div>
             </div>
             <div>
-              <p className="text-muted-foreground text-sm mb-1">Why they want to join LATOUR</p>
+              <p className="text-muted-foreground text-xs mb-1">Why join KEVA?</p>
               <p className="text-sm bg-muted p-3 rounded-lg">{selectedApp?.reason_for_joining}</p>
             </div>
-            {selectedApp?.status === "rejected" && selectedApp?.rejection_reason && (
+            {selectedApp?.status === "rejected" && (
               <div>
-                <p className="text-muted-foreground text-sm mb-1">Rejection Reason</p>
+                <p className="text-muted-foreground text-xs mb-1 text-destructive">Rejection Reason</p>
                 <p className="text-sm bg-destructive/10 text-destructive p-3 rounded-lg">
-                  {selectedApp?.rejection_reason}
+                  {selectedApp?.rejection_reason || "No reason provided."}
                 </p>
               </div>
             )}
