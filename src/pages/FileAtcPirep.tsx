@@ -44,18 +44,13 @@ export default function FileAtcPirep() {
     }
   }
 
-  // IFATC Realism Logic
   const hasInvalidCombo = () => {
     if (isSupervisor) return false
-    
     const hasCenter = selectedFreqs.includes("Center")
     const hasRadar = selectedFreqs.includes("Approach") || selectedFreqs.includes("Departure")
     const hasLocal = selectedFreqs.includes("Tower") || selectedFreqs.includes("Ground")
-
-    // Rule: Center is standalone. Radar (A/D) cannot mix with Local (G/T).
     if (hasCenter && selectedFreqs.length > 1) return true
     if (hasRadar && hasLocal) return true
-    
     return false
   }
 
@@ -71,7 +66,6 @@ export default function FileAtcPirep() {
     }
 
     setLoading(true)
-    
     const { error } = await supabase
       .from("atc_pireps")
       .insert({
@@ -82,8 +76,8 @@ export default function FileAtcPirep() {
         freq_close_time: close,
         multiplier: Number(multiplier),
         remarks,
-        selected_frequencies: selectedFreqs, // To SQL text[]
-        is_supervisor_override: isSupervisor, // To SQL boolean
+        selected_frequencies: selectedFreqs,
+        is_supervisor_override: isSupervisor,
         status: "pending"
       })
 
@@ -94,17 +88,14 @@ export default function FileAtcPirep() {
       return
     }
 
-    // Send Discord Notification
     await sendDiscordEmbed({
       title: "📡 New ATC PIREP Submitted",
-      color: isSupervisor ? 3066993 : 15105570, // Green if supervisor, Orange if standard
-      description: `\n👨‍✈️ **Controller:** ${pilot?.full_name || 'Pilot'} (${pilot?.pid || 'N/A'})\n\n✈️ **Airport:** ${icao.toUpperCase()}\n\n📡 **Freqs:** ${selectedFreqs.join(", ")}${isSupervisor ? " **(Supervisor Mode)**" : ""}\n\n⏱️ **Session:** ${open} — ${close}\n\n[View ATC PIREP](https://www.crewcenterkeva.com/admin/atc-pireps)`
+      color: isSupervisor ? 3066993 : 15105570,
+      description: `\n👨‍✈️ **Controller:** ${pilot?.full_name || 'Pilot'} (${pilot?.pid || 'N/A'})\n\n✈️ **Airport:** ${icao.toUpperCase()}\n\n📡 **Freqs:** ${selectedFreqs.join(", ")}${isSupervisor ? " **(Supervisor Mode)**" : ""}\n\n⏱️ **Session:** ${open} — ${close}`
     });
 
     setLoading(false)
     toast.success("ATC PIREP submitted successfully")
-    
-    // Reset form
     setIcao("")
     setOpen("")
     setClose("")
@@ -114,9 +105,9 @@ export default function FileAtcPirep() {
 
   return (
     <div className="max-w-xl mx-auto p-6 animate-in fade-in duration-500">
-      <Card className="border-primary/20 shadow-2xl bg-card/50 backdrop-blur-sm">
+      <Card className="border-primary/20 shadow-2xl bg-card">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl font-bold tracking-tight">
+          <CardTitle className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
             <Radio size={22} className="text-primary" /> File ATC PIREP
           </CardTitle>
         </CardHeader>
@@ -125,16 +116,16 @@ export default function FileAtcPirep() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-muted-foreground">Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-background" />
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Airport ICAO</Label>
-              <Input placeholder="RKSI" className="uppercase font-mono" value={icao} onChange={(e) => setIcao(e.target.value)} />
+              <Input placeholder="RKSI" className="uppercase font-mono bg-background" value={icao} onChange={(e) => setIcao(e.target.value)} />
             </div>
           </div>
 
-          {/* --- GLASMORPHIIC FREQUENCY SELECTOR --- */}
-          <div className="p-5 rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl space-y-4 shadow-inner">
+          {/* --- ADAPTIVE FREQUENCY SELECTOR --- */}
+          <div className="p-5 rounded-2xl border border-border bg-muted/30 dark:bg-white/[0.03] space-y-4 shadow-inner">
             <div className="flex justify-between items-center">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/80">Active Frequencies</Label>
               {isSupervisor && <ShieldCheck size={14} className="text-success animate-bounce" />}
@@ -151,8 +142,8 @@ export default function FileAtcPirep() {
                     className={cn(
                       "transition-all duration-300 py-2.5 px-2 rounded-xl border text-[11px] font-bold uppercase tracking-tighter",
                       isActive 
-                        ? "bg-success/20 border-success/50 text-success shadow-[0_0_15px_rgba(34,197,94,0.15)] scale-[0.98]" 
-                        : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:border-white/20"
+                        ? "bg-success/20 border-success/50 text-success shadow-sm scale-[0.98]" 
+                        : "bg-background border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
                   >
                     {freq.label}
@@ -168,14 +159,14 @@ export default function FileAtcPirep() {
               </div>
             )}
 
-            <div className="flex items-center space-x-3 pt-3 border-t border-white/5">
+            <div className="flex items-center space-x-3 pt-3 border-t border-border">
               <Checkbox 
                 id="supervisor" 
-                className="border-white/20 data-[state=checked]:bg-success data-[state=checked]:border-success"
+                className="data-[state=checked]:bg-success data-[state=checked]:border-success"
                 checked={isSupervisor} 
                 onCheckedChange={(checked) => setIsSupervisor(!!checked)}
               />
-              <label htmlFor="supervisor" className="text-[11px] font-medium text-muted-foreground cursor-pointer select-none hover:text-white transition-colors">
+              <label htmlFor="supervisor" className="text-[11px] font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
                 Supervisor Exemption (Manual Override)
               </label>
             </div>
@@ -184,18 +175,18 @@ export default function FileAtcPirep() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-muted-foreground text-xs uppercase font-bold">Open (Z)</Label>
-              <Input type="time" value={open} onChange={(e) => setOpen(e.target.value)} />
+              <Input type="time" value={open} onChange={(e) => setOpen(e.target.value)} className="bg-background" />
             </div>
             <div className="space-y-2">
               <Label className="text-muted-foreground text-xs uppercase font-bold">Close (Z)</Label>
-              <Input type="time" value={close} onChange={(e) => setClose(e.target.value)} />
+              <Input type="time" value={close} onChange={(e) => setClose(e.target.value)} className="bg-background" />
             </div>
           </div>
 
           <div className="space-y-2">
             <Label className="text-muted-foreground">Session Multiplier</Label>
             <Select value={multiplier} onValueChange={setMultiplier}>
-              <SelectTrigger className="bg-white/[0.02] border-white/10">
+              <SelectTrigger className="bg-background border-input">
                 <SelectValue placeholder="Select Multiplier" />
               </SelectTrigger>
               <SelectContent>
@@ -211,7 +202,7 @@ export default function FileAtcPirep() {
             <Label className="text-muted-foreground">Additional Remarks</Label>
             <Textarea 
               placeholder="Traffic details, handoffs, or notable events..."
-              className="bg-white/[0.02] border-white/10 min-h-[100px] resize-none focus:ring-primary/30" 
+              className="bg-background border-input min-h-[100px] resize-none focus:ring-primary/30" 
               value={remarks} 
               onChange={(e) => setRemarks(e.target.value)}
             />
@@ -222,7 +213,7 @@ export default function FileAtcPirep() {
               "w-full h-12 text-sm font-black uppercase tracking-widest transition-all shadow-lg",
               hasInvalidCombo() && !isSupervisor 
                 ? "bg-muted text-muted-foreground cursor-not-allowed" 
-                : "bg-primary hover:bg-primary/90 hover:shadow-primary/20"
+                : "bg-primary hover:bg-primary/90 hover:shadow-primary/20 text-primary-foreground"
             )}
             onClick={submit} 
             disabled={loading || (hasInvalidCombo() && !isSupervisor)}
