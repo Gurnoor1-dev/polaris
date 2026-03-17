@@ -127,7 +127,7 @@ export default function AdminAtcPireps() {
                   </div>
                 )}
 
-                {/* --- FUTURE FEATURE UPDATE SPACE START --- */}
+                                {/* --- FUTURE FEATURE UPDATE SPACE START --- */}
                 <div className="mt-4 pt-4 border-t border-dashed border-muted-foreground/20">
                     <p className="text-[10px] text-muted-foreground/50 uppercase text-center tracking-widest">
                         Future Extension Slot
@@ -135,33 +135,37 @@ export default function AdminAtcPireps() {
                 </div>
                 {/* --- FUTURE FEATURE UPDATE SPACE END --- */}
 
-                {/* --- FIX START --- */}
-                {/* Updated Action Grid for Perfect Mobile Display */}
-                <div className="grid grid-cols-3 gap-3 pt-3">
-                  <Button
-                    variant="outline"
-                    className="w-full text-success hover:bg-success/10"
-                    onClick={() => updateStatus.mutate({ id: pirep.id, status: "approved" })}
-                  >
-                    <Check className="mr-1.5" size={16}/> Approve
-                  </Button>
+                {/* --- PERFECT BUTTON LAYOUT START --- */}
+                <div className="space-y-3 pt-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button
+                      variant="outline"
+                      className="w-full bg-success/5 border-success/20 text-success hover:bg-success/20 hover:text-success"
+                      onClick={() => updateStatus.mutate({ id: pirep.id, status: "approved" })}
+                    >
+                      <Check className="mr-2" size={18}/> Approve
+                    </Button>
 
-                  <Button
-                    variant="outline"
-                    className="w-full text-destructive hover:bg-destructive/10"
-                    onClick={() => updateStatus.mutate({ id: pirep.id, status: "rejected" })}
-                  >
-                    <X className="mr-1.5" size={16}/> Reject
-                  </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full bg-destructive/5 border-destructive/20 text-destructive hover:bg-destructive/20 hover:text-destructive"
+                      onClick={() => updateStatus.mutate({ id: pirep.id, status: "rejected" })}
+                    >
+                      <X className="mr-2" size={18}/> Reject
+                    </Button>
+                  </div>
 
                   <Button
                     variant="ghost"
-                    className="w-full text-muted-foreground hover:bg-muted"
+                    size="sm"
+                    className="w-full text-muted-foreground hover:bg-muted font-normal h-8"
                     onClick={() => updateStatus.mutate({ id: pirep.id, status: "pending" })}
                   >
-                    <Pause className="mr-1.5" size={16}/> Reset
+                    <Pause className="mr-2" size={14}/> Reset to Pending
                   </Button>
                 </div>
+                {/* --- PERFECT BUTTON LAYOUT END --- */}
+                
                 {/* --- FIX END --- */}
               </CardContent>
             </Card>
