@@ -12,7 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { CalendarIcon, Loader2, Plane } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { CalendarIcon, Loader2, Plane, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export default function FilePirep() {
   const [flightType, setFlightType] = useState<"passenger" | "cargo">("passenger");
   const [pax, setPax] = useState("");
   const [cargoKg, setCargoKg] = useState("");
+  const [remarks, setRemarks] = useState(""); // New Remarks State
   const [showAllAircraft, setShowAllAircraft] = useState(false);
   const [aircraftSearch, setAircraftSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -216,6 +218,7 @@ export default function FilePirep() {
         flight_type: flightType,
         pax: paxValue,
         cargo_kg: cargoKgValue,
+        remarks_new: remarks, // Saving the new remarks field
       });
 
       if (error) throw error;
@@ -226,7 +229,7 @@ export default function FilePirep() {
       await sendDiscordEmbed({
         title: "🛫 New PIREP Submitted",
         color: 3447003,
-        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://www.crewcenterkeva.com/admin/pireps)`
+        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📝 **Remarks:** ${remarks || 'None'}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://www.crewcenterkeva.com/admin/pireps)`
       });
 
       toast.success("PIREP submitted successfully!");
@@ -387,8 +390,28 @@ export default function FilePirep() {
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2"><Label htmlFor="pax">PAX</Label><Input id="pax" type="number" placeholder="180" value={pax} onChange={(e) => setPax(e.target.value)} disabled={isLoading} /></div>
-                <div className="space-y-2"><Label htmlFor="cargoKg">Cargo (kg)</Label><Input id="cargoKg" type="number" placeholder="2500" value={cargoKg} onChange={(e) => setCargoKg(e.target.value)} disabled={isLoading} /></div>
+                <div className="space-y-2">
+                  <Label htmlFor="pax">Passengers</Label>
+                  <Input id="pax" type="number" placeholder="180" value={pax} onChange={(e) => setPax(e.target.value)} disabled={isLoading || flightType === "cargo"} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cargoKg">Cargo (kg)</Label>
+                  <Input id="cargoKg" type="number" placeholder="2500" value={cargoKg} onChange={(e) => setCargoKg(e.target.value)} disabled={isLoading || flightType === "passenger"} />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="remarks" className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4" /> Remarks
+                </Label>
+                <Textarea 
+                  id="remarks" 
+                  placeholder="Any notes about the flight..." 
+                  value={remarks} 
+                  onChange={(e) => setRemarks(e.target.value)} 
+                  disabled={isLoading}
+                  className="resize-none"
+                />
               </div>
             </div>
 
