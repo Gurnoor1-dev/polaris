@@ -42,10 +42,8 @@ export default function FilePirep() {
   const [selectedMultiplier, setSelectedMultiplier] = useState("1");
   const [operator, setOperator] = useState("");
   const [otherOperatorName, setOtherOperatorName] = useState("");
-  const [flightType, setFlightType] = useState<"passenger" | "cargo">("passenger");
   const [pax, setPax] = useState("");
-  const [cargoKg, setCargoKg] = useState("");
-  const [remarks, setRemarks] = useState(""); // New Remarks State
+  const [remarks, setRemarks] = useState("");
   const [showAllAircraft, setShowAllAircraft] = useState(false);
   const [aircraftSearch, setAircraftSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -56,12 +54,10 @@ export default function FilePirep() {
     const arr = searchParams.get("arr");
     const ac = searchParams.get("aircraft");
     const fn = searchParams.get("flight");
-    const ft = searchParams.get("type");
     if (dep) setDepIcao(dep);
     if (arr) setArrIcao(arr);
     if (ac) setAircraftIcao(ac);
     if (fn) setFlightNumber(fn);
-    if (ft && (ft === "passenger" || ft === "cargo")) setFlightType(ft);
     if (searchParams.has("event") || searchParams.has("rotw")) setShowAllAircraft(true);
   }, [searchParams]);
 
@@ -201,7 +197,6 @@ export default function FilePirep() {
     }
     
     const paxValue = pax.trim() === "" ? null : Number(pax);
-    const cargoKgValue = cargoKg.trim() === "" ? null : Number(cargoKg);
 
     setIsLoading(true);
     try {
@@ -215,10 +210,9 @@ export default function FilePirep() {
         flight_date: format(flightDate, "yyyy-MM-dd"),
         multiplier: currentMultiplierValue,
         operator: finalOperator,
-        flight_type: flightType,
+        flight_type: "passenger", // Defaults to passenger in backend
         pax: paxValue,
-        cargo_kg: cargoKgValue,
-        remarks_new: remarks, // Saving the new remarks field
+        remarks_new: remarks,
       });
 
       if (error) throw error;
@@ -229,7 +223,7 @@ export default function FilePirep() {
       await sendDiscordEmbed({
         title: "🛫 New PIREP Submitted",
         color: 3447003,
-        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n${flightType === 'cargo' ? `📦 **Cargo:** ${cargoKgValue || 0} kg` : `👥 **Passengers:** ${paxValue || 0}`}\n\n📝 **Remarks:** ${remarks || 'None'}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://www.crewcenterkeva.com/admin/pireps)`
+        description: `\n🛫 **Flight:** ${flightNumber.toUpperCase()}\n\n🛣️ **Route:** ${depIcao.toUpperCase()} → ${arrIcao.toUpperCase()}\n\n👨‍✈️ **Pilot:** ${pilot.full_name} (${pilot.pid}*)\n\n✈️ **Aircraft:** ${aircraftIcao}\n\n⏱️ **Flight Time:** ${formatPirepTime(totalHoursWithMulti)}\n\n👥 **Passengers:** ${paxValue || 0}\n\n📝 **Remarks:** ${remarks || 'None'}\n\n📅 **Submitted:** ${format(new Date(), "dd-MM-yyyy HH:mm")}\n\n[View PIREP](https://www.crewcenterkeva.com/admin/pireps)`
       });
 
       toast.success("PIREP submitted successfully!");
@@ -346,39 +340,26 @@ export default function FilePirep() {
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-muted-foreground">Operator & Classification</h3>
-              <div className="grid gap-4 md:grid-cols-1">
-                <div className="space-y-3">
-                  <Label>Operator *</Label>
-                  <Select value={operator} onValueChange={setOperator} disabled={isLoading}>
-                    <SelectTrigger><SelectValue placeholder="Select operator" /></SelectTrigger>
-                    <SelectContent>
-                      {(operators || defaultOperators).map((op) => (
-                        <SelectItem key={op} value={op}>{op}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  
-                  {operator === "Others" && (
-                    <div className="animate-in slide-in-from-top-2 duration-300">
-                      <Input 
-                        placeholder="Enter Operator Name" 
-                        value={otherOperatorName} 
-                        onChange={(e) => setOtherOperatorName(e.target.value)} 
-                        required 
-                      />
-                    </div>
-                  )}
-                </div>
+              <h3 className="text-sm font-medium text-muted-foreground">Operator & Details</h3>
+              
+              <div className="space-y-3">
+                <Label>Operator *</Label>
+                <Select value={operator} onValueChange={setOperator} disabled={isLoading}>
+                  <SelectTrigger><SelectValue placeholder="Select operator" /></SelectTrigger>
+                  <SelectContent>
+                    {(operators || defaultOperators).map((op) => (
+                      <SelectItem key={op} value={op}>{op}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {operator === "Others" && (
+                  <div className="animate-in slide-in-from-top-2 duration-300">
+                    <Input placeholder="Enter Operator Name" value={otherOperatorName} onChange={(e) => setOtherOperatorName(e.target.value)} required />
+                  </div>
+                )}
               </div>
+
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="flightType">Flight Type *</Label>
-                  <Select value={flightType} onValueChange={(v) => setFlightType(v as "passenger" | "cargo")} disabled={isLoading}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="passenger">Passenger</SelectItem><SelectItem value="cargo">Cargo</SelectItem></SelectContent>
-                  </Select>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="multiplier">Hours Multiplier</Label>
                   <Select value={selectedMultiplier} onValueChange={setSelectedMultiplier} disabled={isLoading}>
@@ -388,15 +369,9 @@ export default function FilePirep() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="pax">Passengers</Label>
-                  <Input id="pax" type="number" placeholder="180" value={pax} onChange={(e) => setPax(e.target.value)} disabled={isLoading || flightType === "cargo"} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cargoKg">Cargo (kg)</Label>
-                  <Input id="cargoKg" type="number" placeholder="2500" value={cargoKg} onChange={(e) => setCargoKg(e.target.value)} disabled={isLoading || flightType === "passenger"} />
+                  <Input id="pax" type="number" placeholder="180" value={pax} onChange={(e) => setPax(e.target.value)} disabled={isLoading} />
                 </div>
               </div>
               
@@ -404,14 +379,7 @@ export default function FilePirep() {
                 <Label htmlFor="remarks" className="flex items-center gap-2">
                   <MessageSquare className="h-4 w-4" /> Remarks
                 </Label>
-                <Textarea 
-                  id="remarks" 
-                  placeholder="Any notes about the flight..." 
-                  value={remarks} 
-                  onChange={(e) => setRemarks(e.target.value)} 
-                  disabled={isLoading}
-                  className="resize-none"
-                />
+                <Textarea id="remarks" placeholder="Any notes about the flight..." value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={isLoading} className="resize-none" />
               </div>
             </div>
 
