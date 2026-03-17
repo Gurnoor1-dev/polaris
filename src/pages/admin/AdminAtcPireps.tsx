@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Check, X, Pause, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Helper to calculate hours between two time strings (HH:mm)
 const calculateDuration = (open: string, close: string) => {
@@ -61,6 +62,16 @@ export default function AdminAtcPireps() {
       toast.error("Failed to update status");
     }
   });
+
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -124,40 +135,41 @@ export default function AdminAtcPireps() {
                 </div>
                 {/* --- FUTURE FEATURE UPDATE SPACE END --- */}
 
-                <div className="flex gap-2 pt-2 justify-end">
+                {/* --- FIX START --- */}
+                {/* Updated Action Grid for Perfect Mobile Display */}
+                <div className="grid grid-cols-3 gap-3 pt-3">
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="text-success hover:bg-success/10"
+                    className="w-full text-success hover:bg-success/10"
                     onClick={() => updateStatus.mutate({ id: pirep.id, status: "approved" })}
                   >
-                    <Check className="mr-1" size={14}/> Approve
+                    <Check className="mr-1.5" size={16}/> Approve
                   </Button>
 
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="text-destructive hover:bg-destructive/10"
+                    className="w-full text-destructive hover:bg-destructive/10"
                     onClick={() => updateStatus.mutate({ id: pirep.id, status: "rejected" })}
                   >
-                    <X className="mr-1" size={14}/> Reject
+                    <X className="mr-1.5" size={16}/> Reject
                   </Button>
 
                   <Button
                     variant="ghost"
-                    size="sm"
+                    className="w-full text-muted-foreground hover:bg-muted"
                     onClick={() => updateStatus.mutate({ id: pirep.id, status: "pending" })}
                   >
-                    <Pause className="mr-1" size={14}/> Reset
+                    <Pause className="mr-1.5" size={16}/> Reset
                   </Button>
                 </div>
+                {/* --- FIX END --- */}
               </CardContent>
             </Card>
           );
         })}
       </div>
       
-      {data?.length === 0 && (
+      {data?.length === 0 && !isLoading && (
         <div className="text-center py-20 text-muted-foreground">
           No ATC PIREPs found.
         </div>
