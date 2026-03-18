@@ -7,24 +7,16 @@ import { Check, X, Pause, Clock, Radio, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Helper to calculate hours between two time strings (HH:mm)
 const calculateDuration = (open: string, close: string) => {
   if (!open || !close) return 0;
   try {
     const [startH, startM] = open.split(':').map(Number);
     const [endH, endM] = close.split(':').map(Number);
-    
-    const startTotalMinutes = startH * 60 + startM;
-    let endTotalMinutes = endH * 60 + endM;
-
-    if (endTotalMinutes < startTotalMinutes) {
-      endTotalMinutes += 24 * 60;
-    }
-
-    return (endTotalMinutes - startTotalMinutes) / 60;
-  } catch (e) {
-    return 0;
-  }
+    let startTotal = startH * 60 + startM;
+    let endTotal = endH * 60 + endM;
+    if (endTotal < startTotal) endTotal += 24 * 60;
+    return (endTotal - startTotal) / 60;
+  } catch (e) { return 0; }
 };
 
 export default function AdminAtcPireps() {
@@ -37,210 +29,102 @@ export default function AdminAtcPireps() {
         .from("atc_pireps")
         .select("*")
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       return data;
     }
   });
 
   const updateStatus = useMutation({
-    mutationFn: async ({ id, status, userId, hoursToAdd }: { id: string, status: string, userId: string, hoursToAdd: number }) => {
-      // 1. Update the PIREP status first
+    mutationFn: async ({ pirep, newStatus }: { pirep: any, newStatus: string }) => {
+      const oldStatus = pirep.status;
+
+      // 1. If it's already approved and we are approving again, STOP.
+      if (oldStatus === "approved" && newStatus === "approved") return;
+
+      // 2. Update the PIREP status in the DB
       const { error: pirepError } = await supabase
         .from("atc_pireps")
-        .update({ status })
-        .eq("id", id);
+        .update({ status: newStatus })
+        .eq("id", pirep.id);
 
       if (pirepError) throw pirepError;
 
-      // 2. If approving, update the pilot's totals in the "pilots" table
-      if (status === "approved") {
-        // Fetch current stats using user_id
-        const { data: pilot, error: fetchError } = await supabase
-          .from("pilots")
-          .select("total_hours, total_pireps")
-          .eq("user_id", userId) 
-          .single();
+      // 3. LOGIC: Only add hours if moving FROM (Pending/Rejected) TO (Approved)
+      if (newStatus === "approved" && oldStatus !== "approved") {
+        const hoursToAdd = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
 
-        if (fetchError) throw fetchError;
-
-        // Calculate new values (Safe fallback to 0 if null)
-        const currentHours = Number(pilot?.total_hours) || 0;
-        const currentPireps = Number(pilot?.total_pireps) || 0;
+        // RPC is safest, but using a single update with current data fetch
+        const { data: pilot } = await supabase.from("pilots").select("total_hours, total_pireps").eq("user_id", pirep.user_id).single();
         
-        const newHours = currentHours + hoursToAdd;
-        const newPireps = currentPireps + 1;
+        await supabase.from("pilots").update({ 
+          total_hours: (Number(pilot?.total_hours) || 0) + hoursToAdd,
+          total_pireps: (Number(pilot?.total_pireps) || 0) + 1 
+        }).eq("user_id", pirep.user_id);
+      }
 
-        const { error: updateError } = await supabase
-          .from("pilots")
-          .update({ 
-            total_hours: newHours,
-            total_pireps: newPireps 
-          })
-          .eq("user_id", userId);
-
-        if (updateError) throw updateError;
+      // 4. LOGIC: If moving FROM (Approved) TO (Pending/Rejected), SUBTRACT the hours
+      if (oldStatus === "approved" && newStatus !== "approved") {
+        const hoursToSub = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
+        const { data: pilot } = await supabase.from("pilots").select("total_hours, total_pireps").eq("user_id", pirep.user_id).single();
+        
+        await supabase.from("pilots").update({ 
+          total_hours: Math.max(0, (Number(pilot?.total_hours) || 0) - hoursToSub),
+          total_pireps: Math.max(0, (Number(pilot?.total_pireps) || 0) - 1) 
+        }).eq("user_id", pirep.user_id);
       }
     },
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["atc_pireps"] });
-      toast.success(
-        variables.status === "approved" 
-        ? `Success! +${variables.hoursToAdd.toFixed(2)} hrs added to Pilot profile.`
-        : `PIREP marked as ${variables.status}`
-      );
-    },
-    onError: (error: any) => {
-      console.error("Critical Update Error:", error);
-      toast.error("Database Update Failed: " + (error.message || "Unknown Error"));
+      toast.success("PIREP updated successfully");
     }
   });
 
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-6">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-64 w-full rounded-2xl" />
-      </div>
-    )
-  }
+  if (isLoading) return <div className="p-6"><Skeleton className="h-64 w-full" /></div>;
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-sm">
-          <Clock className="h-6 w-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-black tracking-tight uppercase">ATC Admin Dispatch</h1>
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Validate controller logs & credit hours</p>
-        </div>
-      </div>
-
+      <h1 className="text-2xl font-black uppercase tracking-tight">ATC Admin</h1>
       <div className="grid gap-6">
         {data?.map((pirep: any) => {
-          const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
-          const finalHours = rawDuration * (Number(pirep.multiplier) || 1);
-          
+          const hours = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * pirep.multiplier;
           return (
-            <Card key={pirep.id} className="overflow-hidden border-border bg-card/50 backdrop-blur-sm shadow-md transition-all hover:shadow-lg">
-              <CardHeader className="bg-muted/20 pb-3 border-b border-border/50">
-                <CardTitle className="flex justify-between items-center text-lg">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono font-black text-2xl text-primary tracking-tighter">{pirep.airport_icao}</span>
-                    {pirep.is_supervisor_override && (
-                      <Badge variant="outline" className="border-amber-500/50 text-amber-600 bg-amber-500/5 text-[10px] font-bold px-2 py-0">
-                        <ShieldCheck size={12} className="mr-1" /> SUP
-                      </Badge>
-                    )}
-                  </div>
-                  <Badge 
-                    variant={pirep.status === 'approved' ? 'success' : pirep.status === 'rejected' ? 'destructive' : 'outline'}
-                    className="uppercase font-black px-4 py-1"
-                  >
-                    {pirep.status}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-
-              <CardContent className="pt-6 space-y-6 text-foreground">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Date</p>
-                    <p className="font-bold text-sm">{pirep.date}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Shift (Z)</p>
-                    <p className="font-bold text-sm">{pirep.freq_open_time} — {pirep.freq_close_time}</p>
-                  </div>
-                  <div className="col-span-2 md:col-span-1 space-y-2">
-                     <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Frequencies</p>
-                     <div className="flex flex-wrap gap-1">
-                        {pirep.selected_frequencies?.map((f: string) => (
-                          <Badge key={f} variant="secondary" className="text-[9px] font-bold bg-primary/5 text-primary border-primary/10">
-                            {f}
-                          </Badge>
-                        ))}
-                     </div>
-                  </div>
+            <Card key={pirep.id} className="bg-card border-border shadow-sm">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <span className="text-2xl font-black font-mono text-primary">{pirep.airport_icao}</span>
+                  <Badge variant={pirep.status === 'approved' ? 'success' : 'outline'}>{pirep.status.toUpperCase()}</Badge>
                 </div>
 
-                <div className="p-4 rounded-2xl border border-primary/10 bg-primary/[0.03] flex justify-between items-center">
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-primary/70 uppercase font-black tracking-widest">Hours To Credit</p>
-                    <p className="text-3xl font-black">{finalHours.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">hrs</span></p>
-                  </div>
-                  <div className="text-right">
-                    <Badge variant="outline" className="bg-background/50 font-mono text-success border-success/30 text-sm font-bold">
-                      {pirep.multiplier}x
-                    </Badge>
-                  </div>
-                </div>
+                <div className="flex justify-between items-end">
+                   <div>
+                      <p className="text-[10px] uppercase font-bold text-muted-foreground">Session Credit</p>
+                      <p className="text-2xl font-black">{hours.toFixed(2)} hrs</p>
+                      <p className="text-xs text-muted-foreground italic">({pirep.multiplier}x Multiplier Applied)</p>
+                   </div>
+                   <div className="flex flex-col gap-2 w-48">
+                      <Button 
+                        size="sm" variant="outline" className="bg-success/10 text-success hover:bg-success hover:text-white"
+                        onClick={() => updateStatus.mutate({ pirep, newStatus: "approved" })}
+                        disabled={pirep.status === 'approved'}
+                      >Approve</Button>
+                      
+                      <Button 
+                        size="sm" variant="outline" className="bg-destructive/10 text-destructive hover:bg-destructive hover:text-white"
+                        onClick={() => updateStatus.mutate({ pirep, newStatus: "rejected" })}
+                        disabled={pirep.status === 'rejected'}
+                      >Reject</Button>
 
-                {pirep.remarks && (
-                  <div className="text-xs bg-muted/30 p-3 rounded-xl border border-border italic text-muted-foreground">
-                    <span className="not-italic font-bold block mb-1 text-foreground/70">Controller Remarks:</span>
-                    "{pirep.remarks}"
-                  </div>
-                )}
-
-                <div className="space-y-3 pt-4 border-t border-border">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      variant="outline"
-                      className="w-full bg-success/5 border-success/20 text-success hover:bg-success hover:text-white transition-all font-bold"
-                      onClick={() => updateStatus.mutate({ 
-                        id: pirep.id, 
-                        status: "approved", 
-                        userId: pirep.user_id, 
-                        hoursToAdd: finalHours 
-                      })}
-                      disabled={pirep.status === 'approved'}
-                    >
-                      <Check className="mr-2" size={18}/> Approve & Credit
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      className="w-full bg-destructive/5 border-destructive/20 text-destructive hover:bg-destructive hover:text-white transition-all font-bold"
-                      onClick={() => updateStatus.mutate({ 
-                        id: pirep.id, 
-                        status: "rejected", 
-                        userId: pirep.user_id, 
-                        hoursToAdd: 0 
-                      })}
-                      disabled={pirep.status === 'rejected'}
-                    >
-                      <X className="mr-2" size={18}/> Reject
-                    </Button>
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full text-muted-foreground hover:bg-muted font-medium h-9 text-xs uppercase"
-                    onClick={() => updateStatus.mutate({ 
-                      id: pirep.id, 
-                      status: "pending", 
-                      userId: pirep.user_id, 
-                      hoursToAdd: 0 
-                    })}
-                  >
-                    <Pause className="mr-2" size={14}/> Reset to Pending
-                  </Button>
+                      <Button 
+                        size="sm" variant="ghost" className="text-[10px]"
+                        onClick={() => updateStatus.mutate({ pirep, newStatus: "pending" })}
+                      >Reset</Button>
+                   </div>
                 </div>
               </CardContent>
             </Card>
           );
         })}
       </div>
-      
-      {data?.length === 0 && !isLoading && (
-        <div className="text-center py-32 border-2 border-dashed rounded-3xl opacity-30">
-          <Clock className="mx-auto h-12 w-12 mb-4" />
-          <p className="font-bold uppercase tracking-widest text-sm">Inbox Zero. Great job.</p>
-        </div>
-      )}
     </div>
   );
 }
