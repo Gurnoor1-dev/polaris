@@ -3,7 +3,7 @@ const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/148046648543556412
 /**
  * Formats decimal hours into a readable string like "2hrs 30mins"
  */
-export const formatPirepTime = (decimalHours: number) => {
+export const formatPirepTime = (decimalHours: number): string => {
   const h = Math.floor(decimalHours);
   const m = Math.round((decimalHours - h) * 60);
   if (h > 0 && m > 0) return `${h}hrs ${m}mins`;
@@ -14,7 +14,7 @@ export const formatPirepTime = (decimalHours: number) => {
 /**
  * Sends a formatted embed to the specified Discord Webhook
  */
-export const sendDiscordEmbed = async (embed: any) => {
+export const sendDiscordEmbed = async (embed: any): Promise<void> => {
   try {
     await fetch(DISCORD_WEBHOOK_URL, {
       method: "POST",
