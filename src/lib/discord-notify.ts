@@ -1,4 +1,5 @@
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1476573367497789662/_PjS3ntT7dS1g07IClvul_jxxcWe4VMwmWXQ8IN1XGtkLTKXVseKkIr-MkeoIdE5CztV";
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1480466485435564125/gjD8v3OY8M6uo1FaxLctar_FBuZgyupz4v4wGnQg4LeaA3L6Xpas6X1c-s7YB0Od_UHK
+For PIREP";
 
 export const formatPirepTime = (decimalHours: number) => {
   const h = Math.floor(decimalHours);
