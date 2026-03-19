@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query" // Added for dynamic fetch
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -8,13 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Radio, Loader2, Info, ShieldCheck } from "lucide-react"
+import { Radio, Loader2, Info, ShieldCheck, AlertCircle } from "lucide-react" // Added AlertCircle
 import { toast } from "sonner"
 import { sendDiscordEmbed } from "@/lib/discord-notify"
 import { cn } from "@/lib/utils"
-
-// Import the multipliers from the root JSON file
-import multiplierData from "../../../atc-multipliers.json"
 
 export default function FileAtcPirep() {
   const { user, pilot } = useAuth()
@@ -29,6 +27,21 @@ export default function FileAtcPirep() {
   // Frequency State
   const [selectedFreqs, setSelectedFreqs] = useState<string[]>([])
   const [isSupervisor, setIsSupervisor] = useState(false)
+
+  // --- FETCH DYNAMIC MULTIPLIERS ---
+  const { data: multipliers, isLoading: isLoadingMultipliers } = useQuery({
+    queryKey: ["atc-multipliers-active"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("atc_multiplier_configs")
+        .select("*")
+        .eq("is_active", true)
+        .order("value", { ascending: true });
+      
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   const freqOptions = [
     { id: "ATIS", label: "ATIS (S)" },
@@ -187,19 +200,27 @@ export default function FileAtcPirep() {
 
           <div className="space-y-2">
             <Label className="text-muted-foreground">Session Multiplier</Label>
-            <Select value={multiplier} onValueChange={setMultiplier}>
+            <Select value={multiplier} onValueChange={setMultiplier} disabled={isLoadingMultipliers}>
               <SelectTrigger className="bg-background border-input">
-                <SelectValue placeholder="Select Multiplier" />
+                <SelectValue placeholder={isLoadingMultipliers ? "Loading..." : "Select Multiplier"} />
               </SelectTrigger>
               <SelectContent>
-                {/* Dynamically mapped from JSON */}
-                {multiplierData.multipliers.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
+                {multipliers && multipliers.length > 0 ? (
+                  multipliers.map((m) => (
+                    <SelectItem key={m.id} value={m.value.toString()}>
+                      {Number(m.value).toFixed(1)}x - {m.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="1" disabled>No multipliers configured</SelectItem>
+                )}
               </SelectContent>
             </Select>
+            {multipliers?.length === 0 && !isLoadingMultipliers && (
+              <p className="text-[10px] text-destructive flex items-center gap-1">
+                <AlertCircle size={10} /> Contact admin to set up multipliers.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
