@@ -13,6 +13,9 @@ import { toast } from "sonner"
 import { sendDiscordEmbed } from "@/lib/discord-notify"
 import { cn } from "@/lib/utils"
 
+// Import the multipliers from the root JSON file
+import multiplierData from "../../../atc-multipliers.json"
+
 export default function FileAtcPirep() {
   const { user, pilot } = useAuth()
   const [date, setDate] = useState("")
@@ -124,7 +127,6 @@ export default function FileAtcPirep() {
             </div>
           </div>
 
-          {/* --- ADAPTIVE FREQUENCY SELECTOR --- */}
           <div className="p-5 rounded-2xl border border-border bg-muted/30 dark:bg-white/[0.03] space-y-4 shadow-inner">
             <div className="flex justify-between items-center">
               <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/80">Active Frequencies</Label>
@@ -190,10 +192,12 @@ export default function FileAtcPirep() {
                 <SelectValue placeholder="Select Multiplier" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1">1.0x (Standard Session)</SelectItem>
-                <SelectItem value="1.5">1.5x (General IFATC Hub)</SelectItem>
-                <SelectItem value="4">4.0x (KEVA Internal Event)</SelectItem>
-                <SelectItem value="6">6.0x (Official IFC Event)</SelectItem>
+                {/* Dynamically mapped from JSON */}
+                {multiplierData.multipliers.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
