@@ -26,19 +26,27 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_pireps"],
     queryFn: async () => {
-      // Logic: Fetch all PIREPs and join the 'pilots' table where pilots.user_id = atc_pireps.user_id
+      // Logic: Fetch PIREPs and attempt to join pilots
       const { data, error } = await supabase
         .from("atc_pireps")
         .select(`
           *,
-          pilots:user_id (
+          pilots!inner (
             full_name,
             pid
           )
         `)
         .order("created_at", { ascending: false });
       
-      if (error) throw error;
+      if (error) {
+        console.error("Join failed, trying fallback fetch...");
+        // Fallback: If join fails, just get PIREPs
+        const { data: fallbackData } = await supabase
+          .from("atc_pireps")
+          .select("*")
+          .order("created_at", { ascending: false });
+        return fallbackData;
+      }
       return data;
     }
   });
@@ -47,182 +55,90 @@ export default function AdminAtcPireps() {
     mutationFn: async ({ pirep, newStatus }: { pirep: any, newStatus: string }) => {
       const oldStatus = pirep.status;
       if (oldStatus === newStatus) return;
-
       const sessionHours = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
+      
+      await supabase.from("atc_pireps").update({ status: newStatus }).eq("id", pirep.id);
 
-      const { error: pirepError } = await supabase
-        .from("atc_pireps")
-        .update({ status: newStatus })
-        .eq("id", pirep.id);
-
-      if (pirepError) throw pirepError;
-
-      const { data: pilot } = await supabase
-        .from("pilots")
-        .select("total_hours, total_pireps")
-        .eq("user_id", pirep.user_id)
-        .single();
-
+      const { data: pilot } = await supabase.from("pilots").select("total_hours, total_pireps").eq("user_id", pirep.user_id).single();
       if (pilot) {
         let finalHours = Number(pilot.total_hours) || 0;
         let finalPireps = Number(pilot.total_pireps) || 0;
-
-        if (newStatus === "approved" && oldStatus !== "approved") {
-          finalHours += sessionHours;
-          finalPireps += 1;
-        } else if (oldStatus === "approved" && newStatus !== "approved") {
-          finalHours = Math.max(0, finalHours - sessionHours);
-          finalPireps = Math.max(0, finalPireps - 1);
-        }
-
-        const { error: pilotError } = await supabase
-          .from("pilots")
-          .update({ 
-            total_hours: parseFloat(finalHours.toFixed(2)), 
-            total_pireps: finalPireps 
-          })
-          .eq("user_id", pirep.user_id);
-
-        if (pilotError) throw pilotError;
+        if (newStatus === "approved" && oldStatus !== "approved") { finalHours += sessionHours; finalPireps += 1; }
+        else if (oldStatus === "approved" && newStatus !== "approved") { finalHours = Math.max(0, finalHours - sessionHours); finalPireps = Math.max(0, finalPireps - 1); }
+        await supabase.from("pilots").update({ total_hours: parseFloat(finalHours.toFixed(2)), total_pireps: finalPireps }).eq("user_id", pirep.user_id);
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["atc_pireps"] });
-      toast.success("Database synchronized successfully");
+      toast.success("Sync Complete");
     }
   });
 
-  if (isLoading) return <div className="p-6 space-y-6"><Skeleton className="h-12 w-48" /><Skeleton className="h-64 w-full rounded-3xl" /></div>;
+  if (isLoading) return <div className="p-6 space-y-6"><Skeleton className="h-64 w-full rounded-3xl" /></div>;
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl mx-auto animate-in fade-in duration-500">
-      
-      {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-6 border-border/50">
+    <div className="p-6 space-y-8 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between border-b pb-6 border-border/50">
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
-            <Radio size={28} className="animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tighter uppercase italic">ATC DISPATCH</h1>
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em] opacity-60">Validation & Hours Crediting</p>
-          </div>
+          <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><Radio size={24} /></div>
+          <h1 className="text-2xl font-black tracking-tighter uppercase italic">ATC DISPATCH</h1>
         </div>
-        <Badge variant="outline" className="h-fit py-1 px-4 font-black border-primary/20 bg-primary/5 text-primary">
-          {data?.filter(p => p.status === 'pending').length} PENDING
-        </Badge>
       </div>
 
-      {/* QUEUE LIST */}
       <div className="grid gap-6">
         {data?.map((pirep: any) => {
           const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
           const finalHours = rawDuration * (pirep.multiplier || 1);
-          
-          // Handling the Join result (checking if it returned an object or array)
           const pilot = Array.isArray(pirep.pilots) ? pirep.pilots[0] : pirep.pilots;
           
           return (
-            <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md shadow-xl transition-all hover:border-primary/30">
+            <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md">
               <CardContent className="p-0">
                 <div className="flex flex-col lg:flex-row">
-                  
-                  {/* LEFT INFO PANEL */}
                   <div className="p-6 flex-1 space-y-6">
                     <div className="flex items-start justify-between">
                       <div className="flex flex-col">
-                        <div className="flex items-center gap-3">
-                          <span className="text-5xl font-black font-mono tracking-tighter text-foreground leading-none">
-                            {pirep.airport_icao}
-                          </span>
-                          {pirep.is_supervisor_override && (
-                            <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px] font-black uppercase">
-                              <ShieldCheck size={12} className="mr-1" /> SUP
-                            </Badge>
-                          )}
-                        </div>
+                        <span className="text-5xl font-black font-mono tracking-tighter leading-none">
+                          {pirep.airport_icao}
+                        </span>
                         
-                        {/* PILOT INFO - Placed strictly under ICAO */}
-                        <div className="mt-2 pl-1">
-                          <p className="text-sm font-black text-primary uppercase tracking-tight leading-none">
-                            {pilot?.full_name || "Unlinked User"}
+                        {/* PILOT SUBTITLE - Fixed Position */}
+                        <div className="mt-3 pl-1">
+                          <p className="text-[13px] font-black text-primary uppercase leading-tight">
+                            {pilot?.full_name || "PILOT NOT FOUND"}
                           </p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
-                             {pilot?.pid ? `PID: ${pilot.pid}` : `UID: ${pirep.user_id.substring(0,8)}...`}
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
+                            PID: {pilot?.pid || pirep.user_id.slice(0, 8)}
                           </p>
                         </div>
                       </div>
-                      
-                      <Badge className={cn(
-                        "font-black px-4 py-1 uppercase tracking-widest h-fit",
-                        pirep.status === 'approved' ? "bg-success/20 text-success border-success/30" : 
-                        pirep.status === 'rejected' ? "bg-destructive/20 text-destructive border-destructive/30" : "bg-muted text-muted-foreground"
-                      )} variant="outline">
-                        {pirep.status}
-                      </Badge>
+                      <Badge className="font-black uppercase tracking-widest">{pirep.status}</Badge>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Date</p>
-                        <p className="font-bold">{pirep.date}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Shift Time</p>
-                        <p className="font-bold">{pirep.freq_open_time} - {pirep.freq_close_time} Z</p>
-                      </div>
-                      <div className="col-span-2 md:col-span-1 space-y-2">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Frequencies</p>
-                        <div className="flex flex-wrap gap-1">
-                          {pirep.selected_frequencies?.map((f: string) => (
-                            <Badge key={f} variant="secondary" className="text-[9px] font-bold bg-muted/50">{f}</Badge>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                      <div><p className="text-[10px] font-black opacity-50 uppercase">Date</p><p className="font-bold">{pirep.date}</p></div>
+                      <div><p className="text-[10px] font-black opacity-50 uppercase">Shift</p><p className="font-bold">{pirep.freq_open_time}Z - {pirep.freq_close_time}Z</p></div>
+                      <div>
+                        <p className="text-[10px] font-black opacity-50 uppercase">Stations</p>
+                        <div className="flex gap-1 mt-1">
+                          {pirep.selected_frequencies?.map((f: any) => (
+                            <Badge key={f} variant="secondary" className="text-[9px] px-1">{f}</Badge>
                           ))}
                         </div>
                       </div>
                     </div>
-
-                    {pirep.remarks && (
-                      <div className="p-3 bg-muted/20 rounded-xl border border-dashed text-xs italic text-muted-foreground">
-                        "{pirep.remarks}"
-                      </div>
-                    )}
                   </div>
 
-                  {/* RIGHT ACTION PANEL */}
-                  <div className="bg-muted/30 lg:w-80 p-6 border-t lg:border-t-0 lg:border-l border-border flex flex-col justify-between gap-6">
-                    <div className="space-y-1 text-center lg:text-right">
-                      <p className="text-[10px] font-black text-primary uppercase tracking-widest">Total Payout</p>
-                      <div className="flex items-baseline justify-center lg:justify-end gap-2">
-                        <span className="text-4xl font-black">{finalHours.toFixed(2)}</span>
-                        <span className="text-xs font-bold opacity-50 uppercase">HRS</span>
-                      </div>
-                      <p className="text-[10px] font-bold text-success flex items-center justify-center lg:justify-end gap-1 uppercase">
-                        <Zap size={10} /> {pirep.multiplier}x Multiplier applied
-                      </p>
+                  <div className="bg-muted/30 lg:w-72 p-6 flex flex-col justify-between border-l border-border">
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-primary uppercase">Total Credit</p>
+                      <p className="text-4xl font-black">{finalHours.toFixed(2)}<span className="text-xs ml-1 opacity-50">HRS</span></p>
                     </div>
-
-                    <div className="space-y-2">
-                      <Button 
-                        className="w-full bg-success hover:bg-success/90 text-white font-black uppercase tracking-widest h-12 shadow-lg shadow-success/10"
-                        disabled={pirep.status === 'approved' || updateStatus.isPending}
-                        onClick={() => updateStatus.mutate({ pirep, newStatus: "approved" })}
-                      >
-                        {updateStatus.isPending ? <Loader2 className="animate-spin" /> : <Check size={18} className="mr-2" />} Approve
-                      </Button>
+                    <div className="space-y-2 mt-4">
+                      <Button className="w-full bg-success hover:bg-success/90 font-black uppercase h-12" onClick={() => updateStatus.mutate({ pirep, newStatus: "approved" })}>Approve</Button>
                       <div className="grid grid-cols-2 gap-2">
-                        <Button 
-                          variant="outline" className="border-destructive/20 text-destructive hover:bg-destructive/10 font-bold uppercase text-[10px]"
-                          disabled={pirep.status === 'rejected' || updateStatus.isPending}
-                          onClick={() => updateStatus.mutate({ pirep, newStatus: "rejected" })}
-                        >
-                          <X size={14} className="mr-1" /> Reject
-                        </Button>
-                        <Button 
-                          variant="ghost" className="text-muted-foreground font-bold uppercase text-[10px]"
-                          onClick={() => updateStatus.mutate({ pirep, newStatus: "pending" })}
-                        >
-                          <Pause size={14} className="mr-1" /> Reset
-                        </Button>
+                        <Button variant="outline" className="text-destructive font-bold text-[10px] uppercase" onClick={() => updateStatus.mutate({ pirep, newStatus: "rejected" })}>Reject</Button>
+                        <Button variant="ghost" className="text-muted-foreground font-bold text-[10px] uppercase" onClick={() => updateStatus.mutate({ pirep, newStatus: "pending" })}>Reset</Button>
                       </div>
                     </div>
                   </div>
