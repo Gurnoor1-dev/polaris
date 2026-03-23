@@ -26,7 +26,7 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_pireps"],
     queryFn: async () => {
-      // Joining pilots via the user_id relationship
+      // Logic: Fetch all PIREPs and join the 'pilots' table where pilots.user_id = atc_pireps.user_id
       const { data, error } = await supabase
         .from("atc_pireps")
         .select(`
@@ -97,6 +97,7 @@ export default function AdminAtcPireps() {
   return (
     <div className="p-6 space-y-8 max-w-5xl mx-auto animate-in fade-in duration-500">
       
+      {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-6 border-border/50">
         <div className="flex items-center gap-4">
           <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
@@ -112,12 +113,13 @@ export default function AdminAtcPireps() {
         </Badge>
       </div>
 
+      {/* QUEUE LIST */}
       <div className="grid gap-6">
         {data?.map((pirep: any) => {
           const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
           const finalHours = rawDuration * (pirep.multiplier || 1);
           
-          // Supabase joins can return an object or an array of one object.
+          // Handling the Join result (checking if it returned an object or array)
           const pilot = Array.isArray(pirep.pilots) ? pirep.pilots[0] : pirep.pilots;
           
           return (
@@ -140,13 +142,13 @@ export default function AdminAtcPireps() {
                           )}
                         </div>
                         
-                        {/* PILOT FULL NAME & PID - POSITIONED UNDER ICAO */}
+                        {/* PILOT INFO - Placed strictly under ICAO */}
                         <div className="mt-2 pl-1">
                           <p className="text-sm font-black text-primary uppercase tracking-tight leading-none">
-                            {pilot?.full_name || "Data Not Linked"}
+                            {pilot?.full_name || "Unlinked User"}
                           </p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mt-1">
-                            PID: {pilot?.pid || "0000"}
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mt-1.5">
+                             {pilot?.pid ? `PID: ${pilot.pid}` : `UID: ${pirep.user_id.substring(0,8)}...`}
                           </p>
                         </div>
                       </div>
