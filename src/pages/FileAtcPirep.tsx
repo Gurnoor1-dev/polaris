@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Radio, ShieldCheck, Zap, Loader2, Clock } from "lucide-react";
+import { Radio, ShieldCheck, Zap, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ export default function AdminAtcPireps() {
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["atc_pireps_with_pilots"],
+    queryKey: ["atc_admin_queue"],
     queryFn: async () => {
       // 1. Fetch PIREPs
       const { data: pireps, error: pError } = await supabase
@@ -34,154 +34,110 @@ export default function AdminAtcPireps() {
 
       if (pError) throw pError;
 
-      // 2. Manual Join: Fetch all pilots related to these PIREPs
-      const userIds = [...new Set(pireps.map(p => p.user_id))];
+      // 2. Fetch ALL pilots to match them
       const { data: pilots, error: plError } = await supabase
         .from("pilots")
-        .select("user_id, full_name, pid")
-        .in("user_id", userIds);
+        .select("user_id, full_name, pid");
 
-      if (plError) throw plError;
+      if (plError) console.error("Pilot Fetch Error:", plError);
 
-      // 3. Map them together manually
-      return pireps.map(pirep => ({
-        ...pirep,
-        pilotData: pilots?.find(pl => pl.user_id === pirep.user_id)
+      // 3. Manual Merge
+      const merged = pireps.map(p => ({
+        ...p,
+        pilot: pilots?.find(pl => pl.user_id === p.user_id)
       }));
+
+      console.log("Merged Data Sample:", merged[0]);
+      return merged;
     }
   });
 
   const updateStatus = useMutation({
     mutationFn: async ({ pirep, newStatus }: { pirep: any, newStatus: string }) => {
       const oldStatus = pirep.status;
-      const sessionHours = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
+      const hours = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
       
       await supabase.from("atc_pireps").update({ status: newStatus }).eq("id", pirep.id);
 
       const { data: pilot } = await supabase.from("pilots").select("total_hours, total_pireps").eq("user_id", pirep.user_id).single();
       if (pilot) {
-        let finalHours = Number(pilot.total_hours) || 0;
-        let finalPireps = Number(pilot.total_pireps) || 0;
-        if (newStatus === "approved" && oldStatus !== "approved") { finalHours += sessionHours; finalPireps += 1; }
-        else if (oldStatus === "approved" && newStatus !== "approved") { finalHours = Math.max(0, finalHours - sessionHours); finalPireps = Math.max(0, finalPireps - 1); }
-        await supabase.from("pilots").update({ total_hours: parseFloat(finalHours.toFixed(2)), total_pireps: finalPireps }).eq("user_id", pirep.user_id);
+        let h = Number(pilot.total_hours) || 0;
+        let p = Number(pilot.total_pireps) || 0;
+        if (newStatus === "approved" && oldStatus !== "approved") { h += hours; p += 1; }
+        else if (oldStatus === "approved" && newStatus !== "approved") { h = Math.max(0, h - hours); p = Math.max(0, p - 1); }
+        await supabase.from("pilots").update({ total_hours: parseFloat(h.toFixed(2)), total_pireps: p }).eq("user_id", pirep.user_id);
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["atc_pireps_with_pilots"] });
-      toast.success("Database Updated");
+      qc.invalidateQueries({ queryKey: ["atc_admin_queue"] });
+      toast.success("Sync Complete");
     }
   });
 
-  if (isLoading) return <div className="p-6 space-y-6"><Skeleton className="h-64 w-full rounded-3xl" /></div>;
+  if (isLoading) return <div className="p-6 space-y-4"><Skeleton className="h-64 w-full" /></div>;
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl mx-auto animate-in fade-in">
-      <div className="flex items-center justify-between border-b pb-6 border-border/50">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
-            <Radio size={24} className="animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none">ATC DISPATCH</h1>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Validation Portal</p>
-          </div>
-        </div>
+    <div className="p-4 space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center gap-3 border-b pb-4 border-white/10">
+        <Radio className="text-primary animate-pulse" />
+        <h1 className="text-xl font-black uppercase tracking-tighter">ATC Dispatch</h1>
       </div>
 
-      <div className="grid gap-6">
-        {data?.map((pirep: any) => {
-          const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
-          const finalHours = rawDuration * (pirep.multiplier || 1);
-          const pilot = pirep.pilotData; // Using our manually mapped data
+      <div className="grid gap-4">
+        {data?.map((item: any) => {
+          const hours = calculateDuration(item.freq_open_time, item.freq_close_time) * (item.multiplier || 1);
           
           return (
-            <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md shadow-2xl transition-all hover:border-primary/40">
+            <Card key={item.id} className="bg-slate-950/50 border-white/10 overflow-hidden">
               <CardContent className="p-0">
-                <div className="flex flex-col lg:flex-row">
+                <div className="flex flex-col md:flex-row">
                   
-                  {/* LEFT CONTENT */}
-                  <div className="p-6 flex-1 space-y-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-3">
-                          <span className="text-5xl font-black font-mono tracking-tighter text-foreground leading-none">
-                            {pirep.airport_icao}
-                          </span>
-                          {pirep.is_supervisor_override && (
-                            <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px] font-black uppercase">
-                              <ShieldCheck size={12} className="mr-1" /> SUP
-                            </Badge>
-                          )}
-                        </div>
+                  {/* DATA SIDE */}
+                  <div className="p-5 flex-1 space-y-5">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h2 className="text-4xl font-black font-mono leading-none">{item.airport_icao}</h2>
                         
-                        {/* PILOT NAME & PID - DIRECTLY UNDER ICAO */}
-                        <div className="mt-3 pl-1 border-l-2 border-primary/30">
-                          <p className="text-sm font-black text-primary uppercase tracking-tight leading-none">
-                            {pilot?.full_name || "PILOT NOT FOUND"}
+                        {/* PILOT INFO BOX - High Visibility */}
+                        <div className="mt-3 py-1 px-2 bg-white/5 rounded border-l-2 border-primary">
+                          <p className="text-[12px] font-black text-white uppercase truncate">
+                            {item.pilot?.full_name || `UNKNOWN (${item.user_id.slice(0,8)})`}
                           </p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mt-1">
-                            PID: {pilot?.pid || "---"}
+                          <p className="text-[10px] font-bold text-primary/80 tracking-widest uppercase">
+                            PID: {item.pilot?.pid || "NOT LINKED"}
                           </p>
                         </div>
                       </div>
-                      
-                      <Badge className={cn(
-                        "font-black px-4 py-1 uppercase tracking-widest h-fit",
-                        pirep.status === 'approved' ? "bg-success/20 text-success border-success/30" : 
-                        pirep.status === 'rejected' ? "bg-destructive/20 text-destructive border-destructive/30" : "bg-muted text-muted-foreground"
-                      )} variant="outline">
-                        {pirep.status}
-                      </Badge>
+                      <Badge variant="outline" className="font-black uppercase bg-white/5">{item.status}</Badge>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Date</p>
-                        <p className="font-bold">{pirep.date}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Shift</p>
-                        <p className="font-bold">{pirep.freq_open_time} - {pirep.freq_close_time} Z</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Stations</p>
-                        <div className="flex flex-wrap gap-1">
-                          {pirep.selected_frequencies?.map((f: string) => (
-                            <Badge key={f} variant="secondary" className="text-[9px] font-bold bg-muted/50">{f}</Badge>
-                          ))}
-                        </div>
-                      </div>
+                    <div className="grid grid-cols-2 gap-4 text-[11px] font-bold uppercase text-muted-foreground">
+                      <div><p>Date</p><p className="text-white">{item.date}</p></div>
+                      <div><p>Shift</p><p className="text-white">{item.freq_open_time} - {item.freq_close_time}Z</p></div>
                     </div>
                   </div>
 
-                  {/* RIGHT PAYOUT PANEL */}
-                  <div className="bg-muted/30 lg:w-72 p-6 border-t lg:border-t-0 lg:border-l border-border flex flex-col justify-between">
-                    <div className="text-center lg:text-right space-y-1">
-                      <p className="text-[10px] font-black text-primary uppercase">Total Payout</p>
-                      <div className="flex items-baseline justify-center lg:justify-end gap-1">
-                        <span className="text-4xl font-black">{finalHours.toFixed(2)}</span>
-                        <span className="text-xs font-bold opacity-50 uppercase">HRS</span>
-                      </div>
-                      <p className="text-[10px] font-bold text-success flex items-center justify-center lg:justify-end gap-1 uppercase">
-                        <Zap size={10} /> {pirep.multiplier}x Multiplier
-                      </p>
+                  {/* ACTION SIDE */}
+                  <div className="p-5 bg-white/5 md:w-64 border-t md:border-t-0 md:border-l border-white/10 flex flex-col justify-between">
+                    <div className="text-right mb-4">
+                      <p className="text-[10px] font-black text-primary uppercase">Total Hours</p>
+                      <p className="text-3xl font-black">{hours.toFixed(2)}</p>
                     </div>
-
-                    <div className="space-y-2 mt-6">
+                    
+                    <div className="space-y-2">
                       <Button 
-                        className="w-full bg-success hover:bg-success/90 text-white font-black uppercase h-12 shadow-lg shadow-success/10"
-                        disabled={updateStatus.isPending}
-                        onClick={() => updateStatus.mutate({ pirep, newStatus: "approved" })}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 font-black uppercase"
+                        onClick={() => updateStatus.mutate({ pirep: item, newStatus: "approved" })}
                       >
                         {updateStatus.isPending ? <Loader2 className="animate-spin" /> : "Approve"}
                       </Button>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button variant="outline" className="text-destructive font-bold uppercase text-[10px]" onClick={() => updateStatus.mutate({ pirep, newStatus: "rejected" })}>Reject</Button>
-                        <Button variant="ghost" className="text-muted-foreground font-bold uppercase text-[10px]" onClick={() => updateStatus.mutate({ pirep, newStatus: "pending" })}>Reset</Button>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" className="flex-1 text-[10px] font-bold text-red-400 hover:text-red-300" onClick={() => updateStatus.mutate({ pirep: item, newStatus: "rejected" })}>REJECT</Button>
+                        <Button variant="ghost" className="flex-1 text-[10px] font-bold text-slate-400" onClick={() => updateStatus.mutate({ pirep: item, newStatus: "pending" })}>RESET</Button>
                       </div>
                     </div>
                   </div>
+
                 </div>
               </CardContent>
             </Card>
