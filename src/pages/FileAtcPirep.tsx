@@ -26,17 +26,22 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_pireps"],
     queryFn: async () => {
+      // Fetching PIREPs + Joining the Pilots table via user_id
       const { data, error } = await supabase
         .from("atc_pireps")
         .select(`
           *,
-          pilots:user_id (
+          pilots (
             full_name,
             pid
           )
         `)
         .order("created_at", { ascending: false });
-      if (error) throw error;
+      
+      if (error) {
+        console.error("Supabase Error:", error);
+        throw error;
+      }
       return data;
     }
   });
@@ -95,7 +100,6 @@ export default function AdminAtcPireps() {
   return (
     <div className="p-6 space-y-8 max-w-5xl mx-auto animate-in fade-in duration-500">
       
-      {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-6 border-border/50">
         <div className="flex items-center gap-4">
           <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
@@ -111,12 +115,14 @@ export default function AdminAtcPireps() {
         </Badge>
       </div>
 
-      {/* QUEUE LIST */}
       <div className="grid gap-6">
         {data?.map((pirep: any) => {
           const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
           const finalHours = rawDuration * (pirep.multiplier || 1);
-          const pilotInfo = pirep.pilots;
+          
+          // Debugging: If this says 'undefined', the join failed. 
+          // Note: If your FK is named differently, you might need pilots:user_id(...)
+          const pilotInfo = Array.isArray(pirep.pilots) ? pirep.pilots[0] : pirep.pilots;
           
           return (
             <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md shadow-xl transition-all hover:border-primary/30">
@@ -126,7 +132,7 @@ export default function AdminAtcPireps() {
                   {/* LEFT INFO PANEL */}
                   <div className="p-6 flex-1 space-y-6">
                     <div className="flex items-start justify-between">
-                      <div className="space-y-0.5">
+                      <div className="flex flex-col">
                         <div className="flex items-center gap-3">
                           <span className="text-5xl font-black font-mono tracking-tighter text-foreground leading-none">
                             {pirep.airport_icao}
@@ -137,9 +143,11 @@ export default function AdminAtcPireps() {
                             </Badge>
                           )}
                         </div>
-                        {/* PILOT INFO SUBHEADER */}
-                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest pl-1">
-                          {pilotInfo?.full_name || "Unknown"} <span className="text-primary/70">({pilotInfo?.pid || "N/A"})</span>
+                        
+                        {/* PILOT INFO SUBHEADER - Forced below ICAO */}
+                        <p className="text-[12px] font-black text-primary/80 uppercase tracking-widest mt-2 pl-1">
+                          {pilotInfo?.full_name || "MISSING NAME"} 
+                          <span className="text-muted-foreground ml-2">({pilotInfo?.pid || "N/A"})</span>
                         </p>
                       </div>
                       
@@ -222,13 +230,6 @@ export default function AdminAtcPireps() {
           );
         })}
       </div>
-
-      {data?.length === 0 && !isLoading && (
-        <div className="text-center py-32 border-2 border-dashed rounded-3xl opacity-20">
-          <Clock className="mx-auto h-16 w-16 mb-4" />
-          <p className="font-black uppercase tracking-[0.3em]">No PIREPs in Queue</p>
-        </div>
-      )}
     </div>
   );
 }
