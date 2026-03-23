@@ -26,22 +26,19 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_pireps"],
     queryFn: async () => {
-      // Fetching PIREPs + Joining the Pilots table via user_id
+      // Joining pilots via the user_id relationship
       const { data, error } = await supabase
         .from("atc_pireps")
         .select(`
           *,
-          pilots (
+          pilots:user_id (
             full_name,
             pid
           )
         `)
         .order("created_at", { ascending: false });
       
-      if (error) {
-        console.error("Supabase Error:", error);
-        throw error;
-      }
+      if (error) throw error;
       return data;
     }
   });
@@ -120,9 +117,8 @@ export default function AdminAtcPireps() {
           const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
           const finalHours = rawDuration * (pirep.multiplier || 1);
           
-          // Debugging: If this says 'undefined', the join failed. 
-          // Note: If your FK is named differently, you might need pilots:user_id(...)
-          const pilotInfo = Array.isArray(pirep.pilots) ? pirep.pilots[0] : pirep.pilots;
+          // Supabase joins can return an object or an array of one object.
+          const pilot = Array.isArray(pirep.pilots) ? pirep.pilots[0] : pirep.pilots;
           
           return (
             <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md shadow-xl transition-all hover:border-primary/30">
@@ -144,11 +140,15 @@ export default function AdminAtcPireps() {
                           )}
                         </div>
                         
-                        {/* PILOT INFO SUBHEADER - Forced below ICAO */}
-                        <p className="text-[12px] font-black text-primary/80 uppercase tracking-widest mt-2 pl-1">
-                          {pilotInfo?.full_name || "MISSING NAME"} 
-                          <span className="text-muted-foreground ml-2">({pilotInfo?.pid || "N/A"})</span>
-                        </p>
+                        {/* PILOT FULL NAME & PID - POSITIONED UNDER ICAO */}
+                        <div className="mt-2 pl-1">
+                          <p className="text-sm font-black text-primary uppercase tracking-tight leading-none">
+                            {pilot?.full_name || "Data Not Linked"}
+                          </p>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] mt-1">
+                            PID: {pilot?.pid || "0000"}
+                          </p>
+                        </div>
                       </div>
                       
                       <Badge className={cn(
