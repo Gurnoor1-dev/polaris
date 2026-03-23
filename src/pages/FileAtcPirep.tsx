@@ -1,252 +1,234 @@
-import { useState } from "react"
-import { useQuery } from "@tanstack/react-query" // Added for dynamic fetch
-import { supabase } from "@/integrations/supabase/client"
-import { useAuth } from "@/contexts/AuthContext"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Radio, Loader2, Info, ShieldCheck, AlertCircle } from "lucide-react" // Added AlertCircle
-import { toast } from "sonner"
-import { sendDiscordEmbed } from "@/lib/discord-notify"
-import { cn } from "@/lib/utils"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Check, X, Pause, Clock, Radio, ShieldCheck, Zap, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
-export default function FileAtcPirep() {
-  const { user, pilot } = useAuth()
-  const [date, setDate] = useState("")
-  const [icao, setIcao] = useState("")
-  const [open, setOpen] = useState("")
-  const [close, setClose] = useState("")
-  const [multiplier, setMultiplier] = useState("1")
-  const [remarks, setRemarks] = useState("")
-  const [loading, setLoading] = useState(false)
+const calculateDuration = (open: string, close: string) => {
+  if (!open || !close) return 0;
+  try {
+    const [startH, startM] = open.split(':').map(Number);
+    const [endH, endM] = close.split(':').map(Number);
+    let startTotal = startH * 60 + startM;
+    let endTotal = endH * 60 + endM;
+    if (endTotal < startTotal) endTotal += 24 * 60;
+    return (endTotal - startTotal) / 60;
+  } catch (e) { return 0; }
+};
 
-  // Frequency State
-  const [selectedFreqs, setSelectedFreqs] = useState<string[]>([])
-  const [isSupervisor, setIsSupervisor] = useState(false)
+export default function AdminAtcPireps() {
+  const qc = useQueryClient();
 
-  // --- FETCH DYNAMIC MULTIPLIERS ---
-  const { data: multipliers, isLoading: isLoadingMultipliers } = useQuery({
-    queryKey: ["atc-multipliers-active"],
+  const { data, isLoading } = useQuery({
+    queryKey: ["atc_pireps"],
     queryFn: async () => {
+      // UPDATED: Joined with pilots table to get full_name and pid
       const { data, error } = await supabase
-        .from("atc_multiplier_configs")
-        .select("*")
-        .eq("is_active", true)
-        .order("value", { ascending: true });
-      
+        .from("atc_pireps")
+        .select(`
+          *,
+          pilots:user_id (
+            full_name,
+            pid
+          )
+        `)
+        .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
-    },
+      return data;
+    }
   });
 
-  const freqOptions = [
-    { id: "ATIS", label: "ATIS (S)" },
-    { id: "Tower", label: "Tower (T)" },
-    { id: "Ground", label: "Ground (G)" },
-    { id: "Approach", label: "Approach (A)" },
-    { id: "Departure", label: "Departure (D)" },
-    { id: "Center", label: "Center (C)" }
-  ]
+  const updateStatus = useMutation({
+    mutationFn: async ({ pirep, newStatus }: { pirep: any, newStatus: string }) => {
+      const oldStatus = pirep.status;
+      if (oldStatus === newStatus) return;
 
-  const toggleFreq = (id: string) => {
-    if (selectedFreqs.includes(id)) {
-      setSelectedFreqs(selectedFreqs.filter(f => f !== id))
-    } else {
-      setSelectedFreqs([...selectedFreqs, id])
+      const sessionHours = calculateDuration(pirep.freq_open_time, pirep.freq_close_time) * (Number(pirep.multiplier) || 1);
+
+      const { error: pirepError } = await supabase
+        .from("atc_pireps")
+        .update({ status: newStatus })
+        .eq("id", pirep.id);
+
+      if (pirepError) throw pirepError;
+
+      const { data: pilot } = await supabase
+        .from("pilots")
+        .select("total_hours, total_pireps")
+        .eq("user_id", pirep.user_id)
+        .single();
+
+      if (pilot) {
+        let finalHours = Number(pilot.total_hours) || 0;
+        let finalPireps = Number(pilot.total_pireps) || 0;
+
+        if (newStatus === "approved" && oldStatus !== "approved") {
+          finalHours += sessionHours;
+          finalPireps += 1;
+        } else if (oldStatus === "approved" && newStatus !== "approved") {
+          finalHours = Math.max(0, finalHours - sessionHours);
+          finalPireps = Math.max(0, finalPireps - 1);
+        }
+
+        const { error: pilotError } = await supabase
+          .from("pilots")
+          .update({ 
+            total_hours: parseFloat(finalHours.toFixed(2)), 
+            total_pireps: finalPireps 
+          })
+          .eq("user_id", pirep.user_id);
+
+        if (pilotError) throw pilotError;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["atc_pireps"] });
+      toast.success("Database synchronized successfully");
     }
-  }
+  });
 
-  const hasInvalidCombo = () => {
-    if (isSupervisor) return false
-    const hasCenter = selectedFreqs.includes("Center")
-    const hasRadar = selectedFreqs.includes("Approach") || selectedFreqs.includes("Departure")
-    const hasLocal = selectedFreqs.includes("Tower") || selectedFreqs.includes("Ground")
-    if (hasCenter && selectedFreqs.length > 1) return true
-    if (hasRadar && hasLocal) return true
-    return false
-  }
-
-  const submit = async () => {
-    if (!date || !icao || !open || !close || selectedFreqs.length === 0) {
-      toast.error("Please fill all required fields and select frequencies")
-      return
-    }
-
-    if (hasInvalidCombo() && !isSupervisor) {
-      toast.error("Invalid frequency combination for standard controllers")
-      return
-    }
-
-    setLoading(true)
-    const { error } = await supabase
-      .from("atc_pireps")
-      .insert({
-        user_id: user?.id,
-        date,
-        airport_icao: icao.toUpperCase(),
-        freq_open_time: open,
-        freq_close_time: close,
-        multiplier: Number(multiplier),
-        remarks,
-        selected_frequencies: selectedFreqs,
-        is_supervisor_override: isSupervisor,
-        status: "pending"
-      })
-
-    if (error) {
-      console.error(error)
-      toast.error("Failed to submit PIREP")
-      setLoading(false)
-      return
-    }
-
-    await sendDiscordEmbed({
-      title: "📡 New ATC PIREP Submitted",
-      color: isSupervisor ? 3066993 : 15105570,
-      description: `\n👨‍✈️ **Controller:** ${pilot?.full_name || 'Pilot'} (${pilot?.pid || 'N/A'})\n\n✈️ **Airport:** ${icao.toUpperCase()}\n\n📡 **Freqs:** ${selectedFreqs.join(", ")}${isSupervisor ? " **(Supervisor Mode)**" : ""}\n\n⏱️ **Session:** ${open} — ${close}`
-    });
-
-    setLoading(false)
-    toast.success("ATC PIREP submitted successfully")
-    setIcao("")
-    setOpen("")
-    setClose("")
-    setRemarks("")
-    setSelectedFreqs([])
-  }
+  if (isLoading) return <div className="p-6 space-y-6"><Skeleton className="h-12 w-48" /><Skeleton className="h-64 w-full rounded-3xl" /></div>;
 
   return (
-    <div className="max-w-xl mx-auto p-6 animate-in fade-in duration-500">
-      <Card className="border-primary/20 shadow-2xl bg-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-xl font-bold tracking-tight text-foreground">
-            <Radio size={22} className="text-primary" /> File ATC PIREP
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <div className="p-6 space-y-8 max-w-5xl mx-auto animate-in fade-in duration-500">
+      
+      {/* HEADER SECTION */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-6 border-border/50">
+        <div className="flex items-center gap-4">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
+            <Radio size={28} className="animate-pulse" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black tracking-tighter uppercase italic">ATC DISPATCH</h1>
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-[0.2em] opacity-60">Validation & Hours Crediting</p>
+          </div>
+        </div>
+        <Badge variant="outline" className="h-fit py-1 px-4 font-black border-primary/20 bg-primary/5 text-primary">
+          {data?.filter(p => p.status === 'pending').length} PENDING
+        </Badge>
+      </div>
+
+      {/* QUEUE LIST */}
+      <div className="grid gap-6">
+        {data?.map((pirep: any) => {
+          const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
+          const finalHours = rawDuration * (pirep.multiplier || 1);
+          // Access the joined pilot data
+          const pilotInfo = pirep.pilots;
           
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-background" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">Airport ICAO</Label>
-              <Input placeholder="RKSI" className="uppercase font-mono bg-background" value={icao} onChange={(e) => setIcao(e.target.value)} />
-            </div>
-          </div>
+          return (
+            <Card key={pirep.id} className="overflow-hidden border-border bg-card/40 backdrop-blur-md shadow-xl transition-all hover:border-primary/30">
+              <CardContent className="p-0">
+                <div className="flex flex-col lg:flex-row">
+                  
+                  {/* LEFT INFO PANEL */}
+                  <div className="p-6 flex-1 space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className="text-4xl font-black font-mono tracking-tighter text-foreground">{pirep.airport_icao}</span>
+                          {pirep.is_supervisor_override && (
+                            <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px] font-black uppercase">
+                              <ShieldCheck size={12} className="mr-1" /> SUP
+                            </Badge>
+                          )}
+                        </div>
+                        {/* NEW PILOT INFO SUBHEADER */}
+                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-tight">
+                          {pilotInfo?.full_name || "Unknown"} <span className="text-primary/70">({pilotInfo?.pid || "N/A"})</span>
+                        </p>
+                      </div>
+                      
+                      <Badge className={cn(
+                        "font-black px-4 py-1 uppercase tracking-widest h-fit",
+                        pirep.status === 'approved' ? "bg-success/20 text-success border-success/30" : 
+                        pirep.status === 'rejected' ? "bg-destructive/20 text-destructive border-destructive/30" : "bg-muted text-muted-foreground"
+                      )} variant="outline">
+                        {pirep.status}
+                      </Badge>
+                    </div>
 
-          <div className="p-5 rounded-2xl border border-border bg-muted/30 dark:bg-white/[0.03] space-y-4 shadow-inner">
-            <div className="flex justify-between items-center">
-              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/80">Active Frequencies</Label>
-              {isSupervisor && <ShieldCheck size={14} className="text-success animate-bounce" />}
-            </div>
-            
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {freqOptions.map((freq) => {
-                const isActive = selectedFreqs.includes(freq.id);
-                return (
-                  <button
-                    key={freq.id}
-                    type="button"
-                    onClick={() => toggleFreq(freq.id)}
-                    className={cn(
-                      "transition-all duration-300 py-2.5 px-2 rounded-xl border text-[11px] font-bold uppercase tracking-tighter",
-                      isActive 
-                        ? "bg-success/20 border-success/50 text-success shadow-sm scale-[0.98]" 
-                        : "bg-background border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Date</p>
+                        <p className="font-bold">{pirep.date}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Shift Time</p>
+                        <p className="font-bold">{pirep.freq_open_time} - {pirep.freq_close_time} Z</p>
+                      </div>
+                      <div className="col-span-2 md:col-span-1 space-y-2">
+                        <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Frequencies</p>
+                        <div className="flex flex-wrap gap-1">
+                          {pirep.selected_frequencies?.map((f: string) => (
+                            <Badge key={f} variant="secondary" className="text-[9px] font-bold bg-muted/50">{f}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {pirep.remarks && (
+                      <div className="p-3 bg-muted/20 rounded-xl border border-dashed text-xs italic text-muted-foreground">
+                        "{pirep.remarks}"
+                      </div>
                     )}
-                  >
-                    {freq.label}
-                  </button>
-                )
-              })}
-            </div>
+                  </div>
 
-            {hasInvalidCombo() && (
-              <div className="flex items-start gap-2 text-[10px] leading-tight text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20 animate-in zoom-in-95">
-                <Info size={14} className="shrink-0" />
-                <p>Standard controllers cannot mix Local (G/T), Radar (A/D), or Center frequencies simultaneously.</p>
-              </div>
-            )}
+                  {/* RIGHT ACTION PANEL */}
+                  <div className="bg-muted/30 lg:w-80 p-6 border-t lg:border-t-0 lg:border-l border-border flex flex-col justify-between gap-6">
+                    <div className="space-y-1 text-center lg:text-right">
+                      <p className="text-[10px] font-black text-primary uppercase tracking-widest">Total Payout</p>
+                      <div className="flex items-baseline justify-center lg:justify-end gap-2">
+                        <span className="text-4xl font-black">{finalHours.toFixed(2)}</span>
+                        <span className="text-xs font-bold opacity-50 uppercase">HRS</span>
+                      </div>
+                      <p className="text-[10px] font-bold text-success flex items-center justify-center lg:justify-end gap-1 uppercase">
+                        <Zap size={10} /> {pirep.multiplier}x Multiplier applied
+                      </p>
+                    </div>
 
-            <div className="flex items-center space-x-3 pt-3 border-t border-border">
-              <Checkbox 
-                id="supervisor" 
-                className="data-[state=checked]:bg-success data-[state=checked]:border-success"
-                checked={isSupervisor} 
-                onCheckedChange={(checked) => setIsSupervisor(!!checked)}
-              />
-              <label htmlFor="supervisor" className="text-[11px] font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
-                Supervisor Exemption (Manual Override)
-              </label>
-            </div>
-          </div>
+                    <div className="space-y-2">
+                      <Button 
+                        className="w-full bg-success hover:bg-success/90 text-white font-black uppercase tracking-widest h-12 shadow-lg shadow-success/10"
+                        disabled={pirep.status === 'approved' || updateStatus.isPending}
+                        onClick={() => updateStatus.mutate({ pirep, newStatus: "approved" })}
+                      >
+                        {updateStatus.isPending ? <Loader2 className="animate-spin" /> : <Check size={18} className="mr-2" />} Approve
+                      </Button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button 
+                          variant="outline" className="border-destructive/20 text-destructive hover:bg-destructive/10 font-bold uppercase text-[10px]"
+                          disabled={pirep.status === 'rejected' || updateStatus.isPending}
+                          onClick={() => updateStatus.mutate({ pirep, newStatus: "rejected" })}
+                        >
+                          <X size={14} className="mr-1" /> Reject
+                        </Button>
+                        <Button 
+                          variant="ghost" className="text-muted-foreground font-bold uppercase text-[10px]"
+                          onClick={() => updateStatus.mutate({ pirep, newStatus: "pending" })}
+                        >
+                          <Pause size={14} className="mr-1" /> Reset
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-muted-foreground text-xs uppercase font-bold">Open (Z)</Label>
-              <Input type="time" value={open} onChange={(e) => setOpen(e.target.value)} className="bg-background" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-muted-foreground text-xs uppercase font-bold">Close (Z)</Label>
-              <Input type="time" value={close} onChange={(e) => setClose(e.target.value)} className="bg-background" />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-muted-foreground">Session Multiplier</Label>
-            <Select value={multiplier} onValueChange={setMultiplier} disabled={isLoadingMultipliers}>
-              <SelectTrigger className="bg-background border-input">
-                <SelectValue placeholder={isLoadingMultipliers ? "Loading..." : "Select Multiplier"} />
-              </SelectTrigger>
-              <SelectContent>
-                {multipliers && multipliers.length > 0 ? (
-                  multipliers.map((m) => (
-                    <SelectItem key={m.id} value={m.value.toString()}>
-                      {Number(m.value).toFixed(1)}x - {m.name}
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem value="1" disabled>No multipliers configured</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-            {multipliers?.length === 0 && !isLoadingMultipliers && (
-              <p className="text-[10px] text-destructive flex items-center gap-1">
-                <AlertCircle size={10} /> Contact admin to set up multipliers.
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-muted-foreground">Additional Remarks</Label>
-            <Textarea 
-              placeholder="Traffic details, handoffs, or notable events..."
-              className="bg-background border-input min-h-[100px] resize-none focus:ring-primary/30" 
-              value={remarks} 
-              onChange={(e) => setRemarks(e.target.value)}
-            />
-          </div>
-
-          <Button 
-            className={cn(
-              "w-full h-12 text-sm font-black uppercase tracking-widest transition-all shadow-lg",
-              hasInvalidCombo() && !isSupervisor 
-                ? "bg-muted text-muted-foreground cursor-not-allowed" 
-                : "bg-primary hover:bg-primary/90 hover:shadow-primary/20 text-primary-foreground"
-            )}
-            onClick={submit} 
-            disabled={loading || (hasInvalidCombo() && !isSupervisor)}
-          >
-            {loading ? <Loader2 className="animate-spin" size={20} /> : "Submit PIREP"}
-          </Button>
-        </CardContent>
-      </Card>
+      {data?.length === 0 && !isLoading && (
+        <div className="text-center py-32 border-2 border-dashed rounded-3xl opacity-20">
+          <Clock className="mx-auto h-16 w-16 mb-4" />
+          <p className="font-black uppercase tracking-[0.3em]">No PIREPs in Queue</p>
+        </div>
+      )}
     </div>
-  )
+  );
 }
