@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Check, X, Pause, Clock, Radio, ShieldCheck, Zap, Loader2 } from "lucide-react";
@@ -26,7 +26,6 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_pireps"],
     queryFn: async () => {
-      // UPDATED: Joined with pilots table to get full_name and pid
       const { data, error } = await supabase
         .from("atc_pireps")
         .select(`
@@ -117,7 +116,6 @@ export default function AdminAtcPireps() {
         {data?.map((pirep: any) => {
           const rawDuration = calculateDuration(pirep.freq_open_time, pirep.freq_close_time);
           const finalHours = rawDuration * (pirep.multiplier || 1);
-          // Access the joined pilot data
           const pilotInfo = pirep.pilots;
           
           return (
@@ -127,18 +125,20 @@ export default function AdminAtcPireps() {
                   
                   {/* LEFT INFO PANEL */}
                   <div className="p-6 flex-1 space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-0.5">
                         <div className="flex items-center gap-3">
-                          <span className="text-4xl font-black font-mono tracking-tighter text-foreground">{pirep.airport_icao}</span>
+                          <span className="text-5xl font-black font-mono tracking-tighter text-foreground leading-none">
+                            {pirep.airport_icao}
+                          </span>
                           {pirep.is_supervisor_override && (
                             <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px] font-black uppercase">
                               <ShieldCheck size={12} className="mr-1" /> SUP
                             </Badge>
                           )}
                         </div>
-                        {/* NEW PILOT INFO SUBHEADER */}
-                        <p className="text-xs font-bold text-muted-foreground uppercase tracking-tight">
+                        {/* PILOT INFO SUBHEADER */}
+                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest pl-1">
                           {pilotInfo?.full_name || "Unknown"} <span className="text-primary/70">({pilotInfo?.pid || "N/A"})</span>
                         </p>
                       </div>
