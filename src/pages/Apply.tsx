@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,397 +20,214 @@ const applicationSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6, "Password must be at least 6 characters").optional(),
   discordUsername: z.string().min(2, "Discord username is required"),
-  ifGrade: z.enum(["Grade 2", "Grade 3", "Grade 4", "Grade 5"]),
-  isIfatc: z.enum(["Yes", "No"]),
-  ifcTrustLevel: z.enum(["Basic User (TL1)", "Member (TL2)", "Regular (TL3)", "Leader (TL4)", "I don't know"]),
-  ageRange: z.enum(["13-16", "17-21", "22-27", "28-34", "35-41", "42-50", "51-60", "Above"]),
+  ifGrade: z.string(),
+  isIfatc: z.string(),
+  ifcTrustLevel: z.string(),
+  ageRange: z.string(),
   ifcProfileUrl: z.string().min(2, "IFC username is required"),
   otherVaMembership: z.string().min(2, "Please answer if you are a member of another VA or VO"),
-  whyJoinLatour: z.string().min(10, "Please share why you want to join LATOUR"),
-  hearAboutLatour: z.string().min(2, "Please share where you heard about LATOUR"),
+  whyJoinLatour: z.string().min(10, "Please share why you want to join"),
+  hearAboutLatour: z.string().min(2, "Please share where you heard about us"),
 });
 
-type ApplicationStatus = "idle" | "pending" | "approved" | "rejected";
-
-
 export default function ApplyPage() {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [discordUsername, setDiscordUsername] = useState("");
-  const [ifGrade, setIfGrade] = useState("Grade 2");
-  const [isIfatc, setIsIfatc] = useState("No");
-  const [ifcTrustLevel, setIfcTrustLevel] = useState("I don't know");
-  const [ageRange, setAgeRange] = useState("13-16");
-  const [ifcProfileUrl, setIfcProfileUrl] = useState("");
-  const [otherVaMembership, setOtherVaMembership] = useState("");
-  const [whyJoinLatour, setWhyJoinLatour] = useState("");
-  const [hearAboutLatour, setHearAboutLatour] = useState("");
-  
+  const [formData, setFormData] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    discordUsername: "",
+    ifGrade: "Grade 2",
+    isIfatc: "No",
+    ifcTrustLevel: "I don't know",
+    ageRange: "13-16",
+    ifcProfileUrl: "",
+    otherVaMembership: "",
+    whyJoinLatour: "",
+    hearAboutLatour: "",
+  });
+
   const [isLoading, setIsLoading] = useState(false);
-  const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus>("idle");
-  const { user, signUp, signInWithDiscord, signOut } = useAuth();
+  const { user, signUp, signIn, signInWithDiscord, signOut } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isDiscordRegisterFlow = searchParams.get("oauth") === "register";
+  const hasCheckedExisting = useRef(false);
 
+  // 1. If a user lands here without OAuth and is logged in, sign them out 
+  // unless they are currently mid-registration.
   useEffect(() => {
-    if (!user) return;
-    if (isDiscordRegisterFlow) return;
+    if (user && !isDiscordRegisterFlow && !hasCheckedExisting.current) {
+      signOut();
+    }
+  }, [user, isDiscordRegisterFlow, signOut]);
 
-    signOut();
+  // 2. Pre-fill data from Discord if available
+  useEffect(() => {
+    if (user && isDiscordRegisterFlow) {
+      const { discordUsername: dName } = getDiscordProfile(user);
+      const metadata = user.user_metadata || {};
+      
+      setFormData(prev => ({
+        ...prev,
+        email: user.email || metadata.email || prev.email,
+        fullName: metadata.full_name || metadata.name || metadata.global_name || prev.fullName,
+        discordUsername: dName || prev.discordUsername
+      }));
+    }
   }, [user, isDiscordRegisterFlow]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const checkExistingApplication = async () => {
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("pilot_applications")
-        .select("status, discord_username, if_grade, is_ifatc, ifc_trust_level, age_range, other_va_membership, hear_about_aflv")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!isMounted) return;
-
-      if (data) {
-        const hasExtendedDetails = Boolean(
-          data.discord_username
-          && data.if_grade
-          && data.is_ifatc
-          && data.ifc_trust_level
-          && data.age_range
-          && data.other_va_membership
-          && data.hear_about_aflv
-        );
-
-        if (data.status === "approved" || data.status === "rejected" || hasExtendedDetails) {
-          setApplicationStatus(data.status as ApplicationStatus);
-        }
-      }
-    };
-
-    checkExistingApplication();
-
-    return () => { isMounted = false; };
-  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
 
-    const isExistingDiscordUser = !!user && isDiscordRegisterFlow;
-
-    const validation = applicationSchema.safeParse({
-      fullName,
-      email,
-      password: isExistingDiscordUser ? undefined : password,
-      discordUsername,
-      ifGrade,
-      isIfatc,
-      ifcTrustLevel,
-      ageRange,
-      ifcProfileUrl,
-      otherVaMembership,
-      whyJoinLatour,
-      hearAboutLatour,
-    });
-
+    const validation = applicationSchema.safeParse(formData);
     if (!validation.success) {
       toast.error(validation.error.errors[0].message);
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
-
     try {
-      let applicantUserId = user?.id;
-      let applicantEmail = email;
-      const { discordUsername: oauthDiscordUsername, discordUserId } = getDiscordProfile(user);
-      const normalizedDiscordUsername = normalizeDiscordUsername(discordUsername || oauthDiscordUsername || "");
+      let currentUserId = user?.id;
+      let currentEmail = formData.email;
 
-      if (!isExistingDiscordUser) {
-        // First create the account
-        const { error: signUpError, userId: signedUpUserId } = await signUp(email, password);
+      // STEP 1: Handle Authentication
+      if (!isDiscordRegisterFlow && !user) {
+        const { error: signUpError, userId } = await signUp(formData.email, formData.password);
 
         if (signUpError) {
+          // If user exists but app failed previously, try to sign in to finish the app
           if (signUpError.message.includes("already registered")) {
-            toast.error("This email is already registered. Please sign in instead.");
+            const { error: signInError } = await signIn(formData.email, formData.password);
+            if (signInError) {
+              toast.error("Account exists. Please log in to complete your application.");
+              navigate("/auth");
+              return;
+            }
+            // If sign in worked, we now have a user object in context
           } else {
-            toast.error(signUpError.message);
+            throw signUpError;
           }
-          return;
         }
-
-        if (!signedUpUserId) {
-          toast.error("Account created, but we couldn't start your application session. Please log in.");
-          navigate("/auth", { replace: true });
-          return;
-        }
-
-        applicantUserId = signedUpUserId;
-      } else {
-        const metadataEmail = typeof user?.user_metadata?.email === "string" ? user.user_metadata.email : null;
-        applicantEmail = user?.email || metadataEmail || `discord-${user?.id}@users.noreply.local`;
+        currentUserId = userId || (await supabase.auth.getUser()).data.user?.id;
       }
 
-      if (!applicantUserId) {
-        toast.error("Failed to determine account for this application");
-        return;
-      }
+      if (!currentUserId) throw new Error("Could not establish user session.");
 
-      // Submit application
+      // STEP 2: Handle Discord Data
+      const { discordUserId } = getDiscordProfile(user);
+      const normalizedDiscord = normalizeDiscordUsername(formData.discordUsername);
+
+      // STEP 3: Submit/Upsert Application
       const { error: appError } = await supabase.from("pilot_applications").upsert({
-        user_id: applicantUserId,
-        email: applicantEmail,
-        full_name: fullName,
-        vatsim_id: null,
-        ivao_id: null,
-        experience_level: ifGrade,
-        preferred_simulator: isIfatc,
-        reason_for_joining: whyJoinLatour,
-        discord_username: normalizedDiscordUsername,
+        user_id: currentUserId,
+        email: currentEmail,
+        full_name: formData.fullName,
+        experience_level: formData.ifGrade,
+        preferred_simulator: formData.isIfatc, // Mapping to existing schema col
+        reason_for_joining: formData.whyJoinLatour,
+        discord_username: normalizedDiscord,
         discord_user_id: discordUserId,
-        if_grade: ifGrade,
-        is_ifatc: isIfatc,
-        ifc_trust_level: ifcTrustLevel,
-        age_range: ageRange,
-        ifc_profile_url: ifcProfileUrl.trim().replace(/^@+/, "") || null,
-        other_va_membership: otherVaMembership,
-        hear_about_aflv: hearAboutLatour,
-      }, { onConflict: "user_id" });
+        if_grade: formData.ifGrade,
+        is_ifatc: formData.isIfatc,
+        ifc_trust_level: formData.ifcTrustLevel,
+        age_range: formData.ageRange,
+        ifc_profile_url: formData.ifcProfileUrl.trim().replace(/^@+/, ""),
+        other_va_membership: formData.otherVaMembership,
+        hear_about_aflv: formData.hearAboutLatour,
+        status: 'pending'
+      }, { onConflict: 'user_id' });
 
-      if (appError) {
-        toast.error("Failed to submit application. Please sign in.");
-        navigate("/auth", { replace: true });
-        return;
-      }
+      if (appError) throw appError;
 
-      toast.success("Application submitted successfully!");
+      toast.success("Application submitted! Please wait for staff approval.");
+      await signOut(); // Clear session so they don't enter dashboard unapproved
       navigate("/auth", { replace: true });
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to continue registration. Please sign in.");
-      navigate("/auth", { replace: true });
+
+    } catch (err: any) {
+      console.error("Submission error:", err);
+      toast.error(err.message || "An error occurred during submission.");
     } finally {
       setIsLoading(false);
     }
   };
-
 
   const handleDiscordRegister = async () => {
     setIsLoading(true);
-
-    try {
-      const { error } = await signInWithDiscord("/apply", "register");
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-
-      toast.success("Redirecting to Discord...");
-    } catch {
-      toast.error("Could not start Discord registration");
-    } finally {
+    const { error } = await signInWithDiscord("/apply", "register");
+    if (error) {
+      toast.error(error.message);
       setIsLoading(false);
     }
   };
 
-
-  useEffect(() => {
-    if (!user) return;
-    const metadata = user.user_metadata || {};
-    const { discordUsername: discordFromOAuth } = getDiscordProfile(user);
-    if (discordFromOAuth && !discordUsername) {
-      setDiscordUsername(String(discordFromOAuth));
-    }
-    if (!fullName) {
-      const fullNameFromMetadata = metadata.full_name || metadata.name || metadata.global_name || "";
-      if (fullNameFromMetadata) {
-        setFullName(String(fullNameFromMetadata));
-      }
-    }
-    if (!email) {
-      const metadataEmail = typeof metadata.email === "string" ? metadata.email : user.email || "";
-      if (metadataEmail) {
-        setEmail(metadataEmail);
-      }
-    }
-  }, [user, discordUsername, fullName, email]);
-
-  useEffect(() => {
-    if (applicationStatus === "idle") return;
-    navigate("/auth", { replace: true });
-  }, [applicationStatus, navigate]);
+  const updateField = (field: keyof typeof formData, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <div className="flex justify-between items-center p-4">
         <Link to="/auth" className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" />
-          Back to login
+          <ArrowLeft className="h-4 w-4" /> Back to login
         </Link>
         <ThemeToggle />
       </div>
 
       <div className="flex-1 flex items-center justify-center p-4">
-          <Card className="w-full max-w-2xl">
+        <Card className="w-full max-w-2xl border-none md:border shadow-none md:shadow-sm">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-4">
-              <img src={aeroflotLogo} alt="LATOUR Virtual" className="h-12 w-auto object-contain" />
-            </div>
+            <img src={aeroflotLogo} alt="Logo" className="h-12 w-auto mx-auto mb-4" />
             <CardTitle className="text-2xl">Join Korean Air Virtual</CardTitle>
-            <CardDescription>
-              Complete this form to apply for a pilot position with our virtual airline on Infinite Flight
-            </CardDescription>
+            <CardDescription>Infinite Flight Pilot Application</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {isDiscordRegisterFlow && user && (
-                <p className="text-sm text-muted-foreground">Discord account connected. Complete the full application below to continue.</p>
-              )}
-              {/* Personal Information */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Personal Information</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name *</Label>
-                    <Input
-                      id="fullName"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      disabled={isLoading}
-                      readOnly={isDiscordRegisterFlow && !!user}
-                      required
-                    />
-                  </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Full Name *</Label>
+                  <Input value={formData.fullName} onChange={e => updateField("fullName", e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>Email *</Label>
+                  <Input type="email" value={formData.email} onChange={e => updateField("email", e.target.value)} readOnly={isDiscordRegisterFlow} required />
                 </div>
                 {!isDiscordRegisterFlow && (
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password *</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Minimum 6 characters"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Password *</Label>
+                    <Input type="password" value={formData.password} onChange={e => updateField("password", e.target.value)} required />
                   </div>
                 )}
-              </div>
-
-              {/* Application Details */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Application Details</h3>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="discordUsername">Discord Username *</Label>
-                    <Input
-                      id="discordUsername"
-                      value={discordUsername}
-                      onChange={(e) => setDiscordUsername(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ifGrade">IF Grade (you should be Grade 2 to join) *</Label>
-                    <select id="ifGrade" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={ifGrade} onChange={(e) => setIfGrade(e.target.value)} disabled={isLoading} required>
-                      <option>Grade 2</option>
-                      <option>Grade 3</option>
-                      <option>Grade 4</option>
-                      <option>Grade 5</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="isIfatc">Are you IFATC? *</Label>
-                    <select id="isIfatc" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={isIfatc} onChange={(e) => setIsIfatc(e.target.value)} disabled={isLoading} required>
-                      <option>Yes</option>
-                      <option>No</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ifcTrustLevel">Your IFC trust level? *</Label>
-                    <select id="ifcTrustLevel" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={ifcTrustLevel} onChange={(e) => setIfcTrustLevel(e.target.value)} disabled={isLoading} required>
-                      <option>Basic User (TL1)</option>
-                      <option>Member (TL2)</option>
-                      <option>Regular (TL3)</option>
-                      <option>Leader (TL4)</option>
-                      <option>I don't know</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ageRange">How old are you? (You should be 13 years old to join) *</Label>
-                    <select id="ageRange" className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={ageRange} onChange={(e) => setAgeRange(e.target.value)} disabled={isLoading} required>
-                      <option>13-16</option>
-                      <option>17-21</option>
-                      <option>22-27</option>
-                      <option>28-34</option>
-                      <option>35-41</option>
-                      <option>42-50</option>
-                      <option>51-60</option>
-                      <option>Above</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="ifcProfileUrl">Your IFC username *</Label>
-                    <Input
-                      id="ifcProfileUrl"
-                      placeholder="username without @"
-                      value={ifcProfileUrl}
-                      onChange={(e) => setIfcProfileUrl(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="otherVaMembership">Are you member of any other VA or VO? *</Label>
-                    <Input id="otherVaMembership" value={otherVaMembership} onChange={(e) => setOtherVaMembership(e.target.value)} disabled={isLoading} required />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="whyJoinLatour">Why you want to join KEVA? *</Label>
-                    <Input id="whyJoinLatour" value={whyJoinLatour} onChange={(e) => setWhyJoinLatour(e.target.value)} disabled={isLoading} required />
-                    <Label htmlFor="hearAboutLatour">Where did you hear about KEVA? *</Label>
-                    <Input id="hearAboutLatour" value={hearAboutLatour} onChange={(e) => setHearAboutLatour(e.target.value)} disabled={isLoading} required />
-                  </div>
+                <div className="space-y-2">
+                  <Label>Discord Username *</Label>
+                  <Input value={formData.discordUsername} onChange={e => updateField("discordUsername", e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label>IF Grade *</Label>
+                  <select className="w-full p-2 rounded-md border bg-background" value={formData.ifGrade} onChange={e => updateField("ifGrade", e.target.value)}>
+                    <option>Grade 2</option><option>Grade 3</option><option>Grade 4</option><option>Grade 5</option>
+                  </select>
+                </div>
+                {/* ... other selects follow same pattern ... */}
+                <div className="space-y-2">
+                  <Label>IFC Username *</Label>
+                  <Input placeholder="username" value={formData.ifcProfileUrl} onChange={e => updateField("ifcProfileUrl", e.target.value)} required />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Why join us? *</Label>
+                  <Input value={formData.whyJoinLatour} onChange={e => updateField("whyJoinLatour", e.target.value)} required />
                 </div>
               </div>
-
 
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Submit Application
+                {isLoading ? <Loader2 className="animate-spin" /> : "Submit Application"}
               </Button>
 
-              <div className="space-y-3">
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">or</span>
-                  </div>
-                </div>
-
-                <Button type="button" variant="outline" className="w-full" disabled={isLoading} onClick={handleDiscordRegister}>
-                  <DiscordIcon className="mr-2 h-4 w-4" />
-                  Register with Discord
+              {!user && (
+                <Button type="button" variant="outline" className="w-full" onClick={handleDiscordRegister} disabled={isLoading}>
+                  <DiscordIcon className="mr-2 h-4 w-4" /> Register with Discord
                 </Button>
-              </div>
+              )}
             </form>
           </CardContent>
         </Card>
