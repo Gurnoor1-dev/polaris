@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Shield, Search, Check, X, Pause, FileText, Plus, Briefcase, Loader2, AlertCircle } from "lucide-react";
+import { Shield, Search, Check, X, Pause, FileText, Plus, Briefcase, Loader2, AlertCircle, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -377,14 +377,15 @@ export default function AdminPireps() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-3 px-2">Pilot</th>
-                    <th className="text-left py-3 px-2">Date</th>
-                    <th className="text-left py-3 px-2">Flight</th>
-                    <th className="text-left py-3 px-2">Route</th>
-                    <th className="text-left py-3 px-2">Operator</th>
-                    <th className="text-left py-3 px-2">Status</th>
-                    <th className="text-left py-3 px-2">Validation</th>
-                    <th className="text-right py-3 px-2">Actions</th>
+                    <th className="text-left py-3 px-2 font-medium">Pilot</th>
+                    <th className="text-left py-3 px-2 font-medium">Date</th>
+                    <th className="text-left py-3 px-2 font-medium">Flight</th>
+                    <th className="text-left py-3 px-2 font-medium">Route</th>
+                    <th className="text-left py-3 px-2 font-medium">Time</th>
+                    <th className="text-left py-3 px-2 font-medium">Operator</th>
+                    <th className="text-left py-3 px-2 font-medium">Status</th>
+                    <th className="text-left py-3 px-2 font-medium">Validation</th>
+                    <th className="text-right py-3 px-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -396,12 +397,18 @@ export default function AdminPireps() {
                       </td>
                       <td className="py-3 px-2">{format(new Date(pirep.flight_date), "MMM dd, yyyy")}</td>
                       <td className="py-3 px-2 font-medium">{pirep.flight_number}</td>
-                      <td className="py-3 px-2 font-mono">{pirep.dep_icao} → {pirep.arr_icao}</td>
+                      <td className="py-3 px-2 font-mono text-xs">{pirep.dep_icao} → {pirep.arr_icao}</td>
+                      <td className="py-3 px-2">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          <span>{Number(pirep.flight_hours).toFixed(1)}h</span>
+                        </div>
+                      </td>
                       <td className="py-3 px-2 text-muted-foreground">{pirep.operator}</td>
                       <td className="py-3 px-2"><StatusBadge status={pirep.status} /></td>
                       <td className="py-3 px-2">
                         <div className="space-y-1">
-                          <Badge variant={getValidationBadgeVariant(pirep.validation_status)}>
+                          <Badge variant={getValidationBadgeVariant(pirep.validation_status)} className="text-[10px] px-1.5 py-0">
                             {getValidationLabel(pirep.validation_status)}
                           </Badge>
                         </div>
@@ -409,20 +416,16 @@ export default function AdminPireps() {
                       <td className="py-3 px-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {pirep.status !== "approved" && (
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600" onClick={() => handleAction(pirep, "approve")} title="Approve">
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:bg-green-50" onClick={() => handleAction(pirep, "approve")} title="Approve">
                               <Check className="h-4 w-4" />
                             </Button>
                           )}
-                          {pirep.status !== "denied" && (
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleAction(pirep, "deny")} title="Deny">
-                              <X className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {pirep.status !== "on_hold" && (
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-warning" onClick={() => handleAction(pirep, "hold")} title="Hold">
-                              <Pause className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-warning hover:bg-yellow-50" onClick={() => handleAction(pirep, "hold")} title="Hold">
+                            <Pause className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-red-50" onClick={() => handleAction(pirep, "deny")} title="Deny">
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -478,6 +481,7 @@ export default function AdminPireps() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5" /> Manage Operators</CardTitle>
+          <CardDescription>Configure available operators for flight reports</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
