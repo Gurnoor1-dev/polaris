@@ -41,6 +41,14 @@ export default function AdminPireps() {
   const [validationStatus, setValidationStatus] = useState<ValidationStatus>("idle");
   const [validationMetadata, setValidationMetadata] = useState<ValidationMetadata | null>(null);
 
+  // Helper to convert decimal hours or total minutes into HH:MM
+  const formatMinutes = (hours: number) => {
+    const totalMinutes = Math.round(hours * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
   const clearActionDialogState = () => {
     setSelectedPirep(null);
     setActionType(null);
@@ -381,7 +389,7 @@ export default function AdminPireps() {
                     <th className="text-left py-3 px-2 font-medium">Date</th>
                     <th className="text-left py-3 px-2 font-medium">Flight</th>
                     <th className="text-left py-3 px-2 font-medium">Route</th>
-                    <th className="text-left py-3 px-2 font-medium">Time</th>
+                    <th className="text-left py-3 px-2 font-medium">Duration</th>
                     <th className="text-left py-3 px-2 font-medium">Operator</th>
                     <th className="text-left py-3 px-2 font-medium">Status</th>
                     <th className="text-left py-3 px-2 font-medium">Validation</th>
@@ -399,19 +407,17 @@ export default function AdminPireps() {
                       <td className="py-3 px-2 font-medium">{pirep.flight_number}</td>
                       <td className="py-3 px-2 font-mono text-xs">{pirep.dep_icao} → {pirep.arr_icao}</td>
                       <td className="py-3 px-2">
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          <span>{Number(pirep.flight_hours).toFixed(1)}h</span>
+                        <div className="flex items-center gap-1.5 font-mono text-xs">
+                          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span>{formatMinutes(Number(pirep.flight_hours))}</span>
                         </div>
                       </td>
                       <td className="py-3 px-2 text-muted-foreground">{pirep.operator}</td>
                       <td className="py-3 px-2"><StatusBadge status={pirep.status} /></td>
                       <td className="py-3 px-2">
-                        <div className="space-y-1">
-                          <Badge variant={getValidationBadgeVariant(pirep.validation_status)} className="text-[10px] px-1.5 py-0">
-                            {getValidationLabel(pirep.validation_status)}
-                          </Badge>
-                        </div>
+                        <Badge variant={getValidationBadgeVariant(pirep.validation_status)} className="text-[10px] px-1.5 py-0">
+                          {getValidationLabel(pirep.validation_status)}
+                        </Badge>
                       </td>
                       <td className="py-3 px-2 text-right">
                         <div className="flex items-center justify-end gap-1">
