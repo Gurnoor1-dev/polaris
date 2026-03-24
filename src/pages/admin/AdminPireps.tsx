@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Shield, Search, Check, X, Pause, FileText, Plus, Briefcase } from "lucide-react";
+import { Shield, Search, Check, X, Pause, FileText, Plus, Briefcase, Loader2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -231,10 +231,9 @@ export default function AdminPireps() {
     mutationFn: async (pirep: any) => {
       const ifcIdentifier = pirep.pilots?.ifc_username ?? null;
 
-      // Guard: require IFC username on pilot profile before validation
       if (!ifcIdentifier) {
         throw new Error(
-          `Pilot "${pirep.pilots?.full_name ?? pirep.pilot_id}" has no IFC username set on their profile. Ask them to update profile before validating.`
+          `Pilot "${pirep.pilots?.full_name ?? pirep.pilot_id}" has no IFC username set on their profile.`
         );
       }
 
@@ -243,15 +242,10 @@ export default function AdminPireps() {
         pilotId: pirep.pilot_id,
         dep_icao: pirep.dep_icao,
         arr_icao: pirep.arr_icao,
-        ...(ifcIdentifier ? { ifc_identifier: ifcIdentifier } : {}),
+        ifc_identifier: ifcIdentifier,
       };
 
-      console.debug("[validate-pirep-if] sending body:", body);
-
       const { data, error } = await supabase.functions.invoke("validate-pirep-if", { body });
-
-      console.debug("[validate-pirep-if] response:", data, "error:", error);
-
       if (error) throw error;
       return data;
     },
@@ -274,26 +268,22 @@ export default function AdminPireps() {
       });
 
       return isValidated;
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       setValidationStatus("error");
       setValidationMetadata({
-        message: "Validation request failed. Please try again.",
+        message: error.message || "Validation request failed.",
       });
       return null;
     }
   };
 
   const handleAction = async (pirep: any, action: "approve" | "deny" | "hold") => {
-    if (action === "approve") {
-      setSelectedPirep(pirep);
-      setActionType("approve");
-      await runValidationForPirep(pirep);
-      return;
-    }
-
     setSelectedPirep(pirep);
     setActionType(action);
+    if (action === "approve") {
+      await runValidationForPirep(pirep);
+    }
   };
 
   const submitAction = async () => {
@@ -305,34 +295,20 @@ export default function AdminPireps() {
     }
 
     if (actionType === "approve") {
-      let currentValidationStatus = validationStatus;
-
-      if (currentValidationStatus === "idle") {
-        const freshResult = await runValidationForPirep(selectedPirep);
-        if (freshResult === null) return;
-        currentValidationStatus = freshResult ? "validated" : "not_validated";
-      }
-
-      if (currentValidationStatus === "validating") return;
-
-      const isValidated = currentValidationStatus === "validated";
+      const isValidated = validationStatus === "validated";
       updatePirepMutation.mutate({
         pirepId: selectedPirep.id,
         status: "approved",
         isValidated,
-        overrideReason: isValidated
-          ? undefined
-          : (validationMetadata?.message || "Approved without validated auto-check"),
+        overrideReason: isValidated ? undefined : (reason || validationMetadata?.message || "Manual approval"),
       });
-      return;
+    } else {
+      updatePirepMutation.mutate({
+        pirepId: selectedPirep.id,
+        status: actionType === "deny" ? "denied" : "on_hold",
+        reason,
+      });
     }
-
-    const status = actionType === "deny" ? "denied" : "on_hold";
-    updatePirepMutation.mutate({
-      pirepId: selectedPirep.id,
-      status,
-      reason,
-    });
   };
 
   const filteredPireps = pireps?.filter((pirep) => {
@@ -344,10 +320,7 @@ export default function AdminPireps() {
     return matchesSearch;
   });
 
-
-  if (!isAdmin) {
-    return <Navigate to="/" replace />;
-  }
+  if (!isAdmin) return <Navigate to="/" replace />;
 
   return (
     <div className="space-y-6">
@@ -361,14 +334,13 @@ export default function AdminPireps() {
         </div>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by pilot name, PID, or flight number..."
+                placeholder="Search pilot, PID, or flight..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -376,7 +348,7 @@ export default function AdminPireps() {
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full md:w-48">
-                <SelectValue placeholder="Filter by status" />
+                <SelectValue placeholder="Filter status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
@@ -390,7 +362,6 @@ export default function AdminPireps() {
         </CardContent>
       </Card>
 
-      {/* PIREPs Table */}
       <Card>
         <CardHeader>
           <CardTitle>Flight Reports</CardTitle>
@@ -399,296 +370,141 @@ export default function AdminPireps() {
         <CardContent>
           {isLoading ? (
             <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
+              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
             </div>
-          ) : filteredPireps && filteredPireps.length > 0 ? (
+          ) : (
             <div className="relative overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-3 px-2 font-medium">Pilot</th>
-                    <th className="text-left py-3 px-2 font-medium">Date</th>
-                    <th className="text-left py-3 px-2 font-medium">Flight</th>
-                    <th className="text-left py-3 px-2 font-medium">Route</th>
-                    <th className="text-left py-3 px-2 font-medium">Aircraft</th>
-                    <th className="text-left py-3 px-2 font-medium">Operator</th>
-                    <th className="text-left py-3 px-2 font-medium">Type</th>
-                    <th className="text-left py-3 px-2 font-medium">PAX/Cargo</th>
-                    <th className="text-left py-3 px-2 font-medium">Hours</th>
-                    <th className="text-left py-3 px-2 font-medium">Multiplier</th>
-                    <th className="text-left py-3 px-2 font-medium">Status</th>
-                    <th className="text-left py-3 px-2 font-medium">Validation</th>
-                    <th className="text-right py-3 px-2 font-medium">Actions</th>
+                    <th className="text-left py-3 px-2">Pilot</th>
+                    <th className="text-left py-3 px-2">Date</th>
+                    <th className="text-left py-3 px-2">Flight</th>
+                    <th className="text-left py-3 px-2">Route</th>
+                    <th className="text-left py-3 px-2">Operator</th>
+                    <th className="text-left py-3 px-2">Status</th>
+                    <th className="text-left py-3 px-2">Validation</th>
+                    <th className="text-right py-3 px-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPireps.map((pirep) => (
+                  {filteredPireps?.map((pirep) => (
                     <tr key={pirep.id} className="border-b last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-2">
-                        <div>
-                          <p className="font-medium">{pirep.pilots?.full_name}</p>
-                          <p className="text-xs text-muted-foreground">{pirep.pilots?.pid}</p>
-                        </div>
+                        <p className="font-medium">{pirep.pilots?.full_name}</p>
+                        <p className="text-xs text-muted-foreground">{pirep.pilots?.pid}</p>
                       </td>
-                      <td className="py-3 px-2">
-                        {format(new Date(pirep.flight_date), "MMM dd, yyyy")}
-                      </td>
+                      <td className="py-3 px-2">{format(new Date(pirep.flight_date), "MMM dd, yyyy")}</td>
                       <td className="py-3 px-2 font-medium">{pirep.flight_number}</td>
-                      <td className="py-3 px-2 font-mono">
-                        {pirep.dep_icao} → {pirep.arr_icao}
-                      </td>
-                      <td className="py-3 px-2">{pirep.aircraft_icao}</td>
+                      <td className="py-3 px-2 font-mono">{pirep.dep_icao} → {pirep.arr_icao}</td>
                       <td className="py-3 px-2 text-muted-foreground">{pirep.operator}</td>
-                      <td className="py-3 px-2">
-                        <Badge variant="secondary" className="capitalize">
-                          {pirep.flight_type}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-2 text-muted-foreground">
-                        {(pirep.pax ?? 0) > 0 ? `${pirep.pax} pax` : "-"}
-                        {(pirep.cargo_kg ?? 0) > 0 ? ` / ${pirep.cargo_kg} kg` : ""}
-                      </td>
-                      <td className="py-3 px-2">
-                        {Number(pirep.flight_hours).toFixed(1)}
-                      </td>
-                      <td className="py-3 px-2">
-                        <span className="font-mono text-xs" title={`×${pirep.multiplier}`}>{getMultiplierName(pirep.multiplier)}</span>
-                      </td>
-                      <td className="py-3 px-2"><StatusBadge status={pirep.status} classMap={{ on_hold: "status-on-hold" }} /></td>
+                      <td className="py-3 px-2"><StatusBadge status={pirep.status} /></td>
                       <td className="py-3 px-2">
                         <div className="space-y-1">
-                          <Badge variant={getValidationBadgeVariant(pirep.validation_status)} className="capitalize">
+                          <Badge variant={getValidationBadgeVariant(pirep.validation_status)}>
                             {getValidationLabel(pirep.validation_status)}
                           </Badge>
-                          {pirep.validation_checked_at && (
-                            <p className="text-xs text-muted-foreground">
-                              {format(new Date(pirep.validation_checked_at), "MMM dd, yyyy HH:mm")}
-                            </p>
-                          )}
-                          {pirep.validation_override_reason && (
-                            <p className="text-xs text-muted-foreground max-w-[230px] truncate" title={pirep.validation_override_reason}>
-                              Override: {pirep.validation_override_reason}
-                            </p>
-                          )}
                         </div>
                       </td>
                       <td className="py-3 px-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {pirep.status !== "approved" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-success hover:text-success hover:bg-success/10"
-                              onClick={() => handleAction(pirep, "approve")}
-                              title="Approve"
-                            >
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600" onClick={() => handleAction(pirep, "approve")} title="Approve">
                               <Check className="h-4 w-4" />
                             </Button>
                           )}
                           {pirep.status !== "denied" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleAction(pirep, "deny")}
-                              title="Deny"
-                            >
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleAction(pirep, "deny")} title="Deny">
                               <X className="h-4 w-4" />
                             </Button>
                           )}
                           {pirep.status !== "on_hold" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-warning hover:text-warning hover:bg-warning/10"
-                              onClick={() => handleAction(pirep, "hold")}
-                              title="Put On Hold"
-                            >
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-warning" onClick={() => handleAction(pirep, "hold")} title="Hold">
                               <Pause className="h-4 w-4" />
                             </Button>
                           )}
-                          {pirep.status === "approved" && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-muted-foreground hover:bg-muted"
-                              onClick={() => handleAction(pirep, "deny")}
-                              title="Revoke (Deny)"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          )}
                         </div>
-                        {pirep.status_reason && (
-                          <p className="text-xs text-muted-foreground mt-1 max-w-[200px] truncate text-right" title={pirep.status_reason}>
-                            Note: {pirep.status_reason}
-                          </p>
-                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No PIREPs found</p>
-            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Action Dialog */}
       <Dialog open={!!actionType} onOpenChange={(open) => !open && clearActionDialogState()}>
         <DialogContent>
-          {actionType === "approve" ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>Approve PIREP</DialogTitle>
-                <DialogDescription>
-                  Validate the flight log before final approval.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4 py-1">
-                {validationStatus === "validating" && (
-                  <p className="text-sm text-muted-foreground">Validating flight log...</p>
-                )}
-
-                {validationStatus === "validated" && (
-                  <div className="space-y-2 rounded-md border border-success/30 bg-success/10 p-4 text-success">
-                    <div className="flex items-center gap-2 font-medium">
-                      <Check className="h-5 w-5 animate-pulse" />
-                      PIREP Validated. Would you like to approve?
-                    </div>
-                  </div>
-                )}
-
-                {validationStatus === "not_validated" && (
-                  <div className="space-y-2 rounded-md border border-warning/30 bg-warning/10 p-4 text-warning">
-                    <p className="font-medium">PIREP is not validated. Would you like to approve anyway?</p>
-                  </div>
-                )}
-
-                {validationStatus === "error" && (
-                  <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-destructive">
-                    <p className="font-medium">Validation failed.</p>
-                    <p className="text-sm">{validationMetadata?.message}</p>
-                  </div>
-                )}
-
-                {validationMetadata && (validationMetadata.source || validationMetadata.matchedLogId || validationMetadata.confidence !== undefined) && (
-                  <div className="space-y-1 rounded-md border p-3 text-sm">
-                    {validationMetadata.source && <p><span className="font-medium">Source:</span> {validationMetadata.source}</p>}
-                    {validationMetadata.matchedLogId && <p><span className="font-medium">Matched log:</span> {validationMetadata.matchedLogId}</p>}
-                    {validationMetadata.confidence !== undefined && <p><span className="font-medium">Confidence:</span> {Math.round(validationMetadata.confidence * 100)}%</p>}
-                  </div>
-                )}
+          <DialogHeader>
+            <DialogTitle className="capitalize">{actionType} PIREP</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {actionType === "approve" && (
+              <div className={`p-4 rounded-lg border flex items-start gap-3 ${
+                validationStatus === "validated" ? "bg-green-50 border-green-200 text-green-800" :
+                validationStatus === "not_validated" ? "bg-yellow-50 border-yellow-200 text-yellow-800" :
+                "bg-muted border-muted-foreground/20"
+              }`}>
+                {validationStatus === "validating" ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                 validationStatus === "validated" ? <Check className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
+                <div>
+                  <p className="font-semibold">{getValidationLabel(validationStatus)}</p>
+                  <p className="text-sm opacity-90">{validationMetadata?.message || "Auto-checking against live flight data..."}</p>
+                </div>
               </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={clearActionDialogState}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => void submitAction()}
-                  disabled={validationStatus === "validating" || validationStatus === "idle" || updatePirepMutation.isPending}
-                >
-                  Approve
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle>
-                  {actionType === "deny" ? "Deny PIREP" : "Put PIREP On Hold"}
-                </DialogTitle>
-                <DialogDescription>
-                  Please provide a reason for this action.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Textarea
-                  placeholder="Enter reason..."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  rows={4}
-                />
+            )}
+            {(actionType !== "approve" || validationStatus !== "validated") && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Reason / Override Note</p>
+                <Textarea placeholder="Explain your decision..." value={reason} onChange={(e) => setReason(e.target.value)} />
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={clearActionDialogState}>
-                  Cancel
-                </Button>
-                <Button
-                  variant={actionType === "deny" ? "destructive" : "default"}
-                  onClick={submitAction}
-                  disabled={updatePirepMutation.isPending}
-                >
-                  {actionType === "deny" ? "Deny" : "Put On Hold"}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={clearActionDialogState}>Cancel</Button>
+            <Button 
+              onClick={submitAction} 
+              disabled={updatePirepMutation.isPending || validationStatus === "validating"}
+              variant={actionType === "deny" ? "destructive" : "default"}
+            >
+              {updatePirepMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm {actionType}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Operator Management */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Briefcase className="h-5 w-5" />
-            Manage Operators
-          </CardTitle>
-          <CardDescription>Add or remove operators available in the PIREP filing form</CardDescription>
+          <CardTitle className="flex items-center gap-2"><Briefcase className="h-5 w-5" /> Manage Operators</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
-            <Input
-              placeholder="New operator name..."
-              value={newOperator}
-              onChange={(e) => setNewOperator(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddOperator()}
-              className="max-w-sm"
-            />
-            <Button onClick={handleAddOperator} size="sm">
-              <Plus className="h-4 w-4 mr-1" /> Add
-            </Button>
+            <Input placeholder="New operator..." value={newOperator} onChange={(e) => setNewOperator(e.target.value)} className="max-w-sm" />
+            <Button onClick={handleAddOperator}><Plus className="h-4 w-4 mr-1" /> Add</Button>
           </div>
           <Separator />
           <div className="flex flex-wrap gap-2">
             {(operators || defaultOperators).map((op) => (
-              <Badge key={op} variant="secondary" className="flex items-center gap-1 px-3 py-1.5">
+              <Badge key={op} variant="secondary" className="flex items-center gap-1">
                 {op}
-                <button
-                  onClick={() => setDeletingOperator(op)}
-                  className="ml-1 hover:text-destructive"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                <X className="h-3 w-3 cursor-pointer hover:text-destructive" onClick={() => setDeletingOperator(op)} />
               </Badge>
             ))}
           </div>
         </CardContent>
       </Card>
 
-      {/* Confirm Remove Operator */}
       <AlertDialog open={!!deletingOperator} onOpenChange={() => setDeletingOperator(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Operator</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to remove "{deletingOperator}"? Existing PIREPs with this operator won't be affected.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Are you sure you want to remove "{deletingOperator}"?</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deletingOperator && handleRemoveOperator(deletingOperator)}>
-              Remove
-            </AlertDialogAction>
+            <AlertDialogAction onClick={() => deletingOperator && handleRemoveOperator(deletingOperator)}>Remove</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
