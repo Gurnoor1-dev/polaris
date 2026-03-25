@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +11,6 @@ import { Radio, ShieldCheck, Send, Clock, MapPin, Loader2, Zap } from "lucide-re
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Mapping codes to labels
 const FREQ_MAP = [
   { code: "G", label: "Ground" },
   { code: "T", label: "Tower" },
@@ -33,7 +31,6 @@ export default function PublicAtcPirep() {
   const [isSup, setIsSup] = useState(false);
 
   const toggleFreq = (code: string) => {
-    // If Supervisor is ON, ignore all restrictions
     if (isSup) {
       setSelectedCodes(prev => 
         prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
@@ -41,24 +38,38 @@ export default function PublicAtcPirep() {
       return;
     }
 
-    // Logic: Group 1 (G, T, S) vs Group 2 (A, D, C)
-    const isGTS = ["G", "T", "S"].includes(code);
-    const isADC = ["A", "D", "C"].includes(code);
-
     setSelectedCodes(prev => {
       const isSelecting = !prev.includes(code);
       if (!isSelecting) return prev.filter(c => c !== code);
 
-      // Check if trying to mix groups
-      const hasGTS = prev.some(c => ["G", "T", "S"].includes(c));
-      const hasADC = prev.some(c => ["A", "D", "C"].includes(c));
+      // Logic Rules:
+      const hasGorT = prev.some(c => ["G", "T"].includes(c));
+      const hasAorD = prev.some(c => ["A", "D"].includes(c));
+      const hasC = prev.includes("C");
 
-      if (isGTS && hasADC) {
-        toast.error("Cannot select GTS while ADC is active (unless Supervisor)");
+      // 1. Center Rule: Center only alone (except with ATIS)
+      if (code === "C" && (hasGorT || hasAorD)) {
+        toast.error("Center cannot be combined with G, T, A, or D");
         return prev;
       }
-      if (isADC && hasGTS) {
-        toast.error("Cannot select ADC while GTS is active (unless Supervisor)");
+      if (hasC && ["G", "T", "A", "D"].includes(code)) {
+        toast.error("Cannot add stations to a Center session");
+        return prev;
+      }
+
+      // 2. AD Rule: A/D can go with S, but not G/T/C
+      if (["A", "D"].includes(code) && (hasGorT || hasC)) {
+        toast.error("Approach/Departure cannot be combined with G, T, or C");
+        return prev;
+      }
+      if (hasAorD && ["G", "T"].includes(code)) {
+        toast.error("Cannot combine G/T with an Approach/Departure session");
+        return prev;
+      }
+
+      // 3. GTS Rule: Ground/Tower can go with S, but not A/D/C
+      if (["G", "T"].includes(code) && (hasAorD || hasC)) {
+        toast.error("Ground/Tower cannot be combined with A, D, or C");
         return prev;
       }
 
@@ -99,10 +110,10 @@ export default function PublicAtcPirep() {
   };
 
   return (
-    <div className="p-4 max-w-2xl mx-auto py-10">
+    <div className="p-4 max-w-2xl mx-auto py-10 animate-in fade-in duration-500">
       
       <div className="flex items-center gap-4 mb-8">
-        <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+        <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
           <Radio size={24} className="animate-pulse" />
         </div>
         <div>
@@ -140,9 +151,8 @@ export default function PublicAtcPirep() {
               </div>
             </div>
 
-            {/* FREQUENCY SELECTION GRID */}
             <div className="space-y-4">
-              <Label className="text-[10px] font-black uppercase opacity-60">Consolidated Stations</Label>
+              <Label className="text-[10px] font-black uppercase opacity-60">Stations Controlled</Label>
               <div className="grid grid-cols-3 gap-2">
                 {FREQ_MAP.map(f => (
                   <Button
@@ -162,7 +172,6 @@ export default function PublicAtcPirep() {
               </div>
             </div>
 
-            {/* SUP OVERRIDE */}
             <div className={cn(
               "p-4 rounded-2xl border transition-all flex items-center justify-between",
               isSup ? "bg-amber-500/10 border-amber-500/30" : "bg-muted/30 border-white/5"
@@ -178,8 +187,18 @@ export default function PublicAtcPirep() {
               </div>
               <Switch checked={isSup} onCheckedChange={(val) => {
                 setIsSup(val);
-                if (!val) setSelectedCodes([]); // Clear on toggle off to prevent illegal states
+                if (!val) setSelectedCodes([]); 
               }} />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase opacity-60">Remarks</Label>
+              <Textarea 
+                placeholder="Session details..." 
+                className="bg-background/50 border-white/10 italic text-sm"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+              />
             </div>
 
             <Button disabled={loading} className="w-full h-14 bg-primary text-white font-black uppercase tracking-widest shadow-xl">
