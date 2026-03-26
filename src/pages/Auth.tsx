@@ -57,12 +57,12 @@ export default function AuthPage() {
       console.log("Discord Auth Callback Triggered for:", user.email);
       
       try {
-        // 1. Extract Discord Info with Fallbacks
+        // 1. Extract Discord Info with robust fallbacks
         const discordHandle = user.user_metadata.preferred_username || user.user_metadata.name || user.email?.split('@')[0];
         const discordDisplayName = user.user_metadata.custom_claims?.global_name || user.user_metadata.full_name || discordHandle;
         const normalizedHandle = normalizeDiscordUsername(discordHandle);
 
-        // 2. Check Pilots table (Existing Account)
+        // 2. Check if this username exists in the Pilots table
         const { data: existingPilot } = await supabase
           .from("pilots")
           .select("*")
@@ -78,26 +78,33 @@ export default function AuthPage() {
           return;
         }
 
-        // 3. Not a pilot? Check/Create application
-        // Using upsert on user_id to handle potential race conditions
+        // 3. Automated Application Submission
+        // Fills all required schema columns with "Discord" or default values
         const { error: appError } = await supabase.from("pilot_applications").upsert({
           user_id: user.id,
+          email: user.email,
           full_name: discordDisplayName,
           discord_username: normalizedHandle,
           status: "pending",
-          email: user.email,
-          experience_level: "Grade 2", // Default for auto-created apps
-          hear_about_aflv: "Discord Auth Redirect"
+          experience_level: "Grade 2",
+          preferred_simulator: "Discord",
+          reason_for_joining: "Discord Quick Apply",
+          ifc_profile_url: "Discord",
+          other_va_membership: "Discord",
+          hear_about_aflv: "Discord Auth Redirect",
+          age_range: "Discord",
+          if_grade: "Grade 2",
+          is_ifatc: "No",
+          ifc_trust_level: "I don't know"
         }, { onConflict: "user_id" });
 
         if (appError) {
-          console.error("Application processing error:", appError);
-          toast.error("An error occurred while linking your Discord account.");
+          console.error("DATABASE REJECTION:", appError.message, appError.details);
+          toast.error("An error occurred while linking your Discord account. Check console for details.");
         } else {
           toast.info(PENDING_APPROVAL_MESSAGE, { duration: 6000 });
         }
         
-        // Log them out so they can't access the dashboard until admin approves
         await signOut();
         navigate("/auth", { replace: true });
       } catch (err) {
@@ -180,6 +187,7 @@ export default function AuthPage() {
                 </Button>
                 <div className="relative py-2 text-center text-xs uppercase">
                   <span className="bg-card px-2 text-muted-foreground">or</span>
+                  <hr className="mt-[-8px]" />
                 </div>
                 <Button type="button" variant="outline" className="w-full" onClick={handleDiscordSignIn}>
                   <DiscordIcon className="mr-2 h-4 w-4" /> Continue with Discord
