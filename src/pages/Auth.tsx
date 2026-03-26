@@ -31,7 +31,7 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, pilot, isAuthLoading, signIn, signInWithDiscord, signOut } = useAuth();
+  const { user, isAuthLoading, signIn, signInWithDiscord, signOut } = useAuth();
 
   const { data: siteSettings } = useQuery({
     queryKey: ["site-settings-auth"],
@@ -54,56 +54,56 @@ export default function AuthPage() {
     if (oauthFlow !== "login" || isAuthLoading || !user) return;
 
     const handleDiscordAuthMapping = async () => {
-      // 1. Extract Discord Info from Metadata
-      const discordHandle = user.user_metadata.preferred_username || user.user_metadata.name;
-      const discordDisplayName = user.user_metadata.custom_claims?.global_name || user.user_metadata.full_name;
-      const normalizedHandle = normalizeDiscordUsername(discordHandle);
-
-      // 2. Check if this username exists in the Pilots table (Existing Account)
-      const { data: existingPilot } = await supabase
-        .from("pilots")
-        .select("*")
-        .eq("discord_username", normalizedHandle)
-        .maybeSingle();
-
-      if (existingPilot) {
-        // Link the UID if not already linked
-        if (!existingPilot.user_id) {
-          await supabase.from("pilots").update({ user_id: user.id }).eq("id", existingPilot.id);
-        }
-        toast.success(`Welcome back, ${existingPilot.full_name}!`);
-        navigate("/", { replace: true });
-        return;
-      }
-
-      // 3. Not a pilot? Check for a pending application
-      const { data: existingApp } = await supabase
-        .from("pilot_applications")
-        .select("status")
-        .eq("discord_username", normalizedHandle)
-        .maybeSingle();
-
-      if (existingApp) {
-        toast.info(PENDING_APPROVAL_MESSAGE);
-        await signOut();
-        return;
-      }
-
-      // 4. No application? Create one automatically
-      const { error: appError } = await supabase.from("pilot_applications").insert({
-        user_id: user.id,
-        full_name: discordDisplayName,
-        discord_username: normalizedHandle,
-        status: "pending",
-        email: user.email
-      });
-
-      if (!appError) {
-        toast.success("Account created! Application submitted for review.");
-      }
+      console.log("Discord Auth Callback Triggered for:", user.email);
       
-      await signOut();
-      navigate("/auth", { replace: true });
+      try {
+        // 1. Extract Discord Info with Fallbacks
+        const discordHandle = user.user_metadata.preferred_username || user.user_metadata.name || user.email?.split('@')[0];
+        const discordDisplayName = user.user_metadata.custom_claims?.global_name || user.user_metadata.full_name || discordHandle;
+        const normalizedHandle = normalizeDiscordUsername(discordHandle);
+
+        // 2. Check Pilots table (Existing Account)
+        const { data: existingPilot } = await supabase
+          .from("pilots")
+          .select("*")
+          .eq("discord_username", normalizedHandle)
+          .maybeSingle();
+
+        if (existingPilot) {
+          if (!existingPilot.user_id) {
+            await supabase.from("pilots").update({ user_id: user.id }).eq("id", existingPilot.id);
+          }
+          toast.success(`Welcome back, ${existingPilot.full_name}!`);
+          navigate("/", { replace: true });
+          return;
+        }
+
+        // 3. Not a pilot? Check/Create application
+        // Using upsert on user_id to handle potential race conditions
+        const { error: appError } = await supabase.from("pilot_applications").upsert({
+          user_id: user.id,
+          full_name: discordDisplayName,
+          discord_username: normalizedHandle,
+          status: "pending",
+          email: user.email,
+          experience_level: "Grade 2", // Default for auto-created apps
+          hear_about_aflv: "Discord Auth Redirect"
+        }, { onConflict: "user_id" });
+
+        if (appError) {
+          console.error("Application processing error:", appError);
+          toast.error("An error occurred while linking your Discord account.");
+        } else {
+          toast.info(PENDING_APPROVAL_MESSAGE, { duration: 6000 });
+        }
+        
+        // Log them out so they can't access the dashboard until admin approves
+        await signOut();
+        navigate("/auth", { replace: true });
+      } catch (err) {
+        console.error("OAuth Flow Crash:", err);
+        toast.error("Internal authentication error.");
+      }
     };
 
     handleDiscordAuthMapping();
@@ -154,6 +154,9 @@ export default function AuthPage() {
 
       <div className="flex-1 flex flex-col lg:w-2/5">
         <div className="flex items-center justify-between p-4">
+          <a href={VACOMPANY_URL} target="_blank" rel="noopener noreferrer">
+            <img src={vacompanyLogo} alt="VACompany" className="h-10 w-auto opacity-80 invert dark:invert-0" />
+          </a>
           <ThemeToggle />
         </div>
         <div className="flex-1 flex items-center justify-center p-8">
@@ -177,7 +180,6 @@ export default function AuthPage() {
                 </Button>
                 <div className="relative py-2 text-center text-xs uppercase">
                   <span className="bg-card px-2 text-muted-foreground">or</span>
-                  <hr className="mt-[-8px]" />
                 </div>
                 <Button type="button" variant="outline" className="w-full" onClick={handleDiscordSignIn}>
                   <DiscordIcon className="mr-2 h-4 w-4" /> Continue with Discord
