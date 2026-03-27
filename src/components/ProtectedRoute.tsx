@@ -1,6 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useMemo } from "react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -8,24 +7,33 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-  const { user, pilot, isAdmin, isLoading, isPilotLoading } = useAuth();
+  // Removed 'isPilotLoading' as it was undefined in your Context
+  const { user, pilot, isAdmin, isLoading } = useAuth();
   const location = useLocation();
 
-  const redirectTarget = useMemo(() => {
-    if (isLoading) return null;
-    if (!user) return "/auth";
-    if (!pilot && !isPilotLoading) return "/auth";
-    if (requireAdmin && !isAdmin) return "/";
-    return null;
-  }, [isAdmin, isLoading, pilot, requireAdmin, user]);
+  // 1. WHILE LOADING: Show a visible loading state instead of 'null'
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#030712] text-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mb-4"></div>
+        <p className="text-sm font-medium animate-pulse">Authenticating...</p>
+      </div>
+    );
+  }
 
-  if (isLoading || isPilotLoading) return null;
-
-  if (redirectTarget === "/auth") {
+  // 2. CHECK SESSION: If no user, send to login
+  if (!user) {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  if (redirectTarget === "/") {
+  // 3. CHECK PILOT DATA: If user exists but pilot record hasn't loaded 
+  // (and we aren't loading anymore), they might need to re-auth
+  if (!pilot) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  // 4. ADMIN CHECK
+  if (requireAdmin && !isAdmin) {
     return <Navigate to="/" replace />;
   }
 
