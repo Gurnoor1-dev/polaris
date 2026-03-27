@@ -98,32 +98,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return { error };
-
-      if (!data.user) return { error: new Error("No user found") };
-
-      // Fetch the pilot record to check approval status
-      const { data: p } = await supabase
-        .from("pilots")
-        .select("approval_status")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
-
-      // ONLY sign out if the record exists AND it's not approved.
-      // If p is null, they haven't applied yet, so let them in to see the Apply page.
-      if (p && p.approval_status !== "approved") {
-        await supabase.auth.signOut();
-        return { error: new Error(PENDING_APPROVAL_MESSAGE) };
-      }
-
-      return { error: null };
-    } catch (err: any) {
-      return { error: err };
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    
+    if (error) {
+      alert("Supabase Auth Error: " + error.message);
+      return { error };
     }
-  };
 
+    if (!data.user) return { error: new Error("No user found") };
+
+    // Fetch pilot status
+    const { data: p, error: pError } = await supabase
+      .from("pilots")
+      .select("approval_status")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+
+    if (pError) {
+      alert("Database Error: " + pError.message);
+      return { error: pError };
+    }
+
+    if (p && p.approval_status !== "approved") {
+      await supabase.auth.signOut();
+      return { error: new Error(PENDING_APPROVAL_MESSAGE) };
+    }
+
+    return { error: null };
+  } catch (err: any) {
+    alert("System Error: " + err.message);
+    return { error: err };
+  }
+};
+  
   const signUp = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     return { error, userId: data.user?.id ?? null };
