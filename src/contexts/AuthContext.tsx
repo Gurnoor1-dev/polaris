@@ -27,27 +27,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchPilotData = async (userId: string) => {
-    const { data: pilotData } = await supabase.from("pilots").select("*").eq("user_id", userId).maybeSingle();
-    if (pilotData) {
-      setPilot(pilotData);
-      const { data: roleData } = await supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle();
-      setIsAdmin(!!roleData);
+    try {
+      const { data: pilotData } = await supabase
+        .from("pilots")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (pilotData) {
+        setPilot(pilotData);
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .eq("role", "admin")
+          .maybeSingle();
+        setIsAdmin(!!roleData);
+      }
+    } catch (error) {
+      console.error("Error fetching pilot data:", error);
     }
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchPilotData(session.user.id);
+    // FIX: Immediate session check on mount
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (error) throw error;
+
+        if (initialSession) {
+          setSession(initialSession);
+          setUser(initialSession.user);
+          await fetchPilotData(initialSession.user.id);
+        }
+      } catch (error) {
+        console.error("Auth initialization failed:", error);
+      } finally {
+        // Ensure app stops loading even if session check fails
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    // Listen for auth state changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      
+      if (currentSession?.user) {
+        await fetchPilotData(currentSession.user.id);
       } else {
         setPilot(null);
         setIsAdmin(false);
       }
+      
+      // If event fires after init, ensure loading is off
       setIsLoading(false);
     });
-    return () => subscription.unsubscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -68,7 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithDiscord = async (path = "/auth", mode: "login" | "register" = "login") => {
-    // This creates the return URL: https://www.crewcenterkeva.com/auth?oauth=login
     const redirectTo = `${window.location.origin}${path}${path.includes("?") ? "&" : "?"}oauth=${mode}`;
     return await supabase.auth.signInWithOAuth({ 
       provider: "discord", 
@@ -78,6 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setSession(null);
+    setUser(null);
     setPilot(null);
     setIsAdmin(false);
   };
