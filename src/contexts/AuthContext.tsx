@@ -26,16 +26,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // We moved the role check inside fetchPilotData and added error handling
   const fetchPilotData = async (userId: string) => {
     try {
-      // Use Promise.all to fetch both simultaneously for speed
       const [pilotRes, roleRes] = await Promise.all([
         supabase.from("pilots").select("*").eq("user_id", userId).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle()
       ]);
 
-      if (pilotRes.data) setPilot(pilotRes.data);
+      if (pilotRes.data) {
+        setPilot(pilotRes.data);
+      } else {
+        setPilot(null);
+      }
       setIsAdmin(!!roleRes.data);
     } catch (error) {
       console.error("Critical Auth Data Error:", error);
@@ -46,10 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
 
     const initializeAuth = async () => {
-      // 1. EMERGENCY BREAK: If this takes > 7 seconds, force the app to stop spinning
       const forceStopLoading = setTimeout(() => {
-        if (isMounted && isLoading) {
-          console.warn("Auth initialization timed out. Forcing UI load.");
+        if (isMounted) {
+          console.warn("Auth initialization timed out.");
           setIsLoading(false);
         }
       }, 7000);
@@ -62,18 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSession && isMounted) {
           setSession(initialSession);
           setUser(initialSession.user);
-          // Don't 'await' this so we can flip isLoading to false faster
-          fetchPilotData(initialSession.user.id).finally(() => {
-            if (isMounted) setIsLoading(false);
-          });
-        } else {
-          if (isMounted) setIsLoading(false);
+          await fetchPilotData(initialSession.user.id);
         }
       } catch (error) {
         console.error("Auth init failed:", error);
-        if (isMounted) setIsLoading(false);
       } finally {
         clearTimeout(forceStopLoading);
+        if (isMounted) setIsLoading(false);
       }
     };
 
@@ -102,15 +98,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error };
-    
-    const { data: p } = await supabase.from("pilots").select("approval_status").eq("user_id", data.user.id).maybeSingle();
-    if (p?.approval_status !== "approved") {
-      await supabase.auth.signOut();
-      return { error: new Error(PENDING_APPROVAL_MESSAGE) };
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { error };
+
+      if (!data.user) return { error: new Error("No user found") };
+
+      // Fetch the pilot record to check approval status
+      const { data: p } = await supabase
+        .from("pilots")
+        .select("approval_status")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+
+      // ONLY sign out if the record exists AND it's not approved.
+      // If p is null, they haven't applied yet, so let them in to see the Apply page.
+      if (p && p.approval_status !== "approved") {
+        await supabase.auth.signOut();
+        return { error: new Error(PENDING_APPROVAL_MESSAGE) };
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      return { error: err };
     }
-    return { error: null };
   };
 
   const signUp = async (email: string, password: string) => {
