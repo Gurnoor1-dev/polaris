@@ -51,18 +51,25 @@ export default function AuthPage() {
 
   useEffect(() => {
     const oauthFlow = searchParams.get("oauth");
-    if (oauthFlow !== "login" || isAuthLoading || !user) return;
+    const hasHashToken = window.location.hash.includes("access_token");
+
+    // Only proceed if we are in the OAuth redirect flow
+    if (oauthFlow !== "login" && !hasHashToken) return;
 
     const handleDiscordAuthMapping = async () => {
-      console.log("Discord Auth Callback Triggered for:", user.email);
+      // WAIT for AuthContext to finish loading the user session
+      if (isAuthLoading || !user) {
+        console.log("Session pending... waiting to map Discord user.");
+        return;
+      }
+
+      console.log("Discord Handshake processing for:", user.email);
       
       try {
-        // 1. Extract Discord Info with robust fallbacks
         const discordHandle = user.user_metadata.preferred_username || user.user_metadata.name || user.email?.split('@')[0];
         const discordDisplayName = user.user_metadata.custom_claims?.global_name || user.user_metadata.full_name || discordHandle;
         const normalizedHandle = normalizeDiscordUsername(discordHandle);
 
-        // 2. Check if this username exists in the Pilots table
         const { data: existingPilot } = await supabase
           .from("pilots")
           .select("*")
@@ -78,8 +85,6 @@ export default function AuthPage() {
           return;
         }
 
-        // 3. Automated Application Submission
-        // Fills all required schema columns with "Discord" or default values
         const { error: appError } = await supabase.from("pilot_applications").upsert({
           user_id: user.id,
           email: user.email,
@@ -99,8 +104,8 @@ export default function AuthPage() {
         }, { onConflict: "user_id" });
 
         if (appError) {
-          console.error("DATABASE REJECTION:", appError.message, appError.details);
-          toast.error("An error occurred while linking your Discord account. Check console for details.");
+          console.error("DB Error:", appError.message);
+          toast.error("Linking error. Check console.");
         } else {
           toast.info(PENDING_APPROVAL_MESSAGE, { duration: 6000 });
         }
@@ -108,8 +113,7 @@ export default function AuthPage() {
         await signOut();
         navigate("/auth", { replace: true });
       } catch (err) {
-        console.error("OAuth Flow Crash:", err);
-        toast.error("Internal authentication error.");
+        console.error("OAuth Mapping Crash:", err);
       }
     };
 
@@ -141,6 +145,7 @@ export default function AuthPage() {
   const handleDiscordSignIn = async () => {
     setIsLoading(true);
     try {
+      // Pointing explicitly to /auth to ensure the useEffect triggers
       await signInWithDiscord("/auth", "login");
     } catch {
       toast.error("Could not start Discord sign in");
