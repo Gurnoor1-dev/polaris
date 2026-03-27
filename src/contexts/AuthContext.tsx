@@ -1,8 +1,7 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { PENDING_APPROVAL_MESSAGE } from "@/lib/authMessages";
-import { getDiscordProfile } from "@/lib/discordIdentity";
 
 interface AuthContextType {
   user: User | null;
@@ -13,7 +12,7 @@ interface AuthContextType {
   isAuthLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string) => Promise<{ error: any; userId: string | null }>;
-  signInWithDiscord: (redirectPath?: string, mode?: "login" | "register") => Promise<{ error: any }>;
+  signInWithDiscord: (path?: string, mode?: "login" | "register") => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   refreshPilot: () => Promise<void>;
 }
@@ -55,7 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error };
     
-    // Manual check for approval status on Email login
     const { data: p } = await supabase.from("pilots").select("approval_status").eq("user_id", data.user.id).maybeSingle();
     if (p?.approval_status !== "approved") {
       await supabase.auth.signOut();
@@ -69,9 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error, userId: data.user?.id ?? null };
   };
 
-  const signInWithDiscord = async (path = "/", mode: "login" | "register" = "login") => {
-    const redirectTo = `${window.location.origin}${path}${path.includes("?") ? "&" : "?" }oauth=${mode}`;
-    return await supabase.auth.signInWithOAuth({ provider: "discord", options: { redirectTo } });
+  const signInWithDiscord = async (path = "/auth", mode: "login" | "register" = "login") => {
+    // This creates the return URL: https://www.crewcenterkeva.com/auth?oauth=login
+    const redirectTo = `${window.location.origin}${path}${path.includes("?") ? "&" : "?"}oauth=${mode}`;
+    return await supabase.auth.signInWithOAuth({ 
+      provider: "discord", 
+      options: { redirectTo } 
+    });
   };
 
   const signOut = async () => {
