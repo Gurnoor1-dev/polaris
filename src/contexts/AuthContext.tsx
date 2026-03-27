@@ -26,54 +26,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // We moved the role check inside fetchPilotData and added error handling
   const fetchPilotData = async (userId: string) => {
     try {
-      const { data: pilotData } = await supabase
-        .from("pilots")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+      // Use Promise.all to fetch both simultaneously for speed
+      const [pilotRes, roleRes] = await Promise.all([
+        supabase.from("pilots").select("*").eq("user_id", userId).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin").maybeSingle()
+      ]);
 
-      if (pilotData) {
-        setPilot(pilotData);
-        const { data: roleData } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", userId)
-          .eq("role", "admin")
-          .maybeSingle();
-        setIsAdmin(!!roleData);
-      }
+      if (pilotRes.data) setPilot(pilotRes.data);
+      setIsAdmin(!!roleRes.data);
     } catch (error) {
-      console.error("Error fetching pilot data:", error);
+      console.error("Critical Auth Data Error:", error);
     }
   };
 
   useEffect(() => {
-    // FIX: Immediate session check on mount
+    let isMounted = true;
+
     const initializeAuth = async () => {
+      // 1. EMERGENCY BREAK: If this takes > 7 seconds, force the app to stop spinning
+      const forceStopLoading = setTimeout(() => {
+        if (isMounted && isLoading) {
+          console.warn("Auth initialization timed out. Forcing UI load.");
+          setIsLoading(false);
+        }
+      }, 7000);
+
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         
         if (error) throw error;
 
-        if (initialSession) {
+        if (initialSession && isMounted) {
           setSession(initialSession);
           setUser(initialSession.user);
-          await fetchPilotData(initialSession.user.id);
+          // Don't 'await' this so we can flip isLoading to false faster
+          fetchPilotData(initialSession.user.id).finally(() => {
+            if (isMounted) setIsLoading(false);
+          });
+        } else {
+          if (isMounted) setIsLoading(false);
         }
       } catch (error) {
-        console.error("Auth initialization failed:", error);
+        console.error("Auth init failed:", error);
+        if (isMounted) setIsLoading(false);
       } finally {
-        // Ensure app stops loading even if session check fails
-        setIsLoading(false);
+        clearTimeout(forceStopLoading);
       }
     };
 
     initializeAuth();
 
-    // Listen for auth state changes (login, logout, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!isMounted) return;
+
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
       
@@ -84,11 +92,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false);
       }
       
-      // If event fires after init, ensure loading is off
       setIsLoading(false);
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
