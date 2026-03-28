@@ -164,9 +164,9 @@ export default function AuthPage() {
         <div className="flex items-center justify-between p-4">
           <a href={VACOMPANY_URL} target="_blank">
             <img
-              src={vacompanyLogo}
-              className="h-10 dark:invert"
-              alt="VACompany Logo"
+               src={vacompanyLogo}
+               className="h-10 transition dark:invert dark:brightness-150"
+               alt="VACompany Logo"
             />
           </a>
           <ThemeToggle />
