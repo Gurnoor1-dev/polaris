@@ -159,27 +159,27 @@ export default function AuthPage() {
       </div>
 
       {/* Right panel */}
-<div className="flex-1 flex flex-col lg:w-2/5">
-  <div className="flex items-center justify-between p-4">
-    <a href={VACOMPANY_URL} target="_blank">
-      <img
-        src={vacompanyLogo}
-        className="h-10 dark:invert"
-        alt="VACompany Logo"
-      />
-    </a>
-    <ThemeToggle />
-  </div>
-</div>
+      <div className="flex-1 flex flex-col lg:w-2/5">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4">
+          <a href={VACOMPANY_URL} target="_blank">
+            <img
+              src={vacompanyLogo}
+              className="h-10 dark:invert"
+              alt="VACompany Logo"
+            />
+          </a>
+          <ThemeToggle />
+        </div>
 
+        {/* Content */}
         <div className="flex-1 flex items-center justify-center p-8">
-          {/* Glow wrapper */}
           <div
             className="relative w-full max-w-sm"
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
           >
-            {/* Always-on subtle ambient glow */}
+            {/* Ambient glow */}
             <div
               style={{
                 position: "absolute",
@@ -193,7 +193,7 @@ export default function AuthPage() {
               }}
             />
 
-            {/* Hover glow — brighter, wider blur, color shift */}
+            {/* Hover glow */}
             <div
               style={{
                 position: "absolute",
@@ -207,11 +207,7 @@ export default function AuthPage() {
               }}
             />
 
-            {/* The actual card — sits above the glow layers */}
-            <Card
-              className="relative w-full"
-              style={{ zIndex: 1 }}
-            >
+            <Card className="relative w-full" style={{ zIndex: 1 }}>
               <CardHeader className="pb-4 pt-6">
                 <CardTitle className="text-xl">Sign in</CardTitle>
                 <CardDescription>Access the Crew Center</CardDescription>
