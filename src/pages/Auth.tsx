@@ -215,6 +215,16 @@ export default function AuthPage() {
                   <DiscordIcon className="mr-2" />
                   Discord
                 </Button>
+
+                <p className="text-center text-sm text-muted-foreground">
+                  Not a Pilot for KEVA yet?{" "}
+                  <Link
+                    to="/apply"
+                    className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
+                  >
+                    Apply Now!
+                  </Link>
+                </p>
               </form>
             </CardContent>
           </Card>
