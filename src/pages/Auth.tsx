@@ -159,13 +159,18 @@ export default function AuthPage() {
       </div>
 
       {/* Right panel */}
-      <div className="flex-1 flex flex-col lg:w-2/5">
-        <div className="flex items-center justify-between p-4">
-          <a href={VACOMPANY_URL} target="_blank">
-            <img src={vacompanyLogo} className="h-10" />
-          </a>
-          <ThemeToggle />
-        </div>
+<div className="flex-1 flex flex-col lg:w-2/5">
+  <div className="flex items-center justify-between p-4">
+    <a href={VACOMPANY_URL} target="_blank">
+      <img
+        src={vacompanyLogo}
+        className="h-10 dark:invert"
+        alt="VACompany Logo"
+      />
+    </a>
+    <ThemeToggle />
+  </div>
+</div>
 
         <div className="flex-1 flex items-center justify-center p-8">
           {/* Glow wrapper */}
