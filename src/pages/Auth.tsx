@@ -240,7 +240,7 @@ export default function AuthPage() {
                     className="w-full"
                   >
                     <DiscordIcon className="mr-2" />
-                    Discord
+                    Apply/Sign-In with Discord
                   </Button>
 
                   <p className="text-center text-sm text-muted-foreground pt-2">
