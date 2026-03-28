@@ -5,7 +5,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Loader2 } from "lucide-react";
@@ -29,13 +28,13 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const { user, isAuthLoading, signIn, signInWithDiscord, signOut } = useAuth();
 
-  // ✅ Redirect AFTER auth state is ready (FIXES RACE CONDITION)
   useEffect(() => {
     if (!isAuthLoading && user) {
       navigate("/", { replace: true });
@@ -62,28 +61,22 @@ export default function AuthPage() {
   const bannerSrc = siteSettings?.auth_banner_url || aeroflotBanner;
   const logoSrc = siteSettings?.auth_logo_url || kevaLogo;
 
-  // ✅ FIXED OAuth handler (no infinite loop)
   useEffect(() => {
     const oauthMode = searchParams.get("oauth");
     const hasToken = window.location.hash.includes("access_token");
 
     if (!oauthMode && !hasToken) return;
-
     if (isAuthLoading) return;
     if (!user) return;
 
     const run = async () => {
       try {
-        console.log("Processing Discord OAuth for:", user.email);
-
         const discordHandle =
           user.user_metadata.preferred_username ||
           user.user_metadata.name ||
           user.email?.split("@")[0];
 
-        const displayName =
-          user.user_metadata.full_name || discordHandle;
-
+        const displayName = user.user_metadata.full_name || discordHandle;
         const normalized = normalizeDiscordUsername(discordHandle);
 
         const { data: existingPilot } = await supabase
@@ -99,7 +92,6 @@ export default function AuthPage() {
               .update({ user_id: user.id })
               .eq("id", existingPilot.id);
           }
-
           toast.success(`Welcome back, ${existingPilot.full_name}!`);
           navigate("/", { replace: true });
           return;
@@ -116,7 +108,6 @@ export default function AuthPage() {
         toast.info(PENDING_APPROVAL_MESSAGE);
         await signOut();
         navigate("/auth", { replace: true });
-
       } catch (err) {
         console.error("OAuth error:", err);
         setIsLoading(false);
@@ -139,13 +130,10 @@ export default function AuthPage() {
 
     try {
       const { error } = await signIn(email, password);
-
       if (error) {
         toast.error(error.message);
         return;
       }
-
-      // ❌ DO NOT navigate here (fixed)
     } catch {
       toast.error("Unexpected error");
     } finally {
@@ -155,7 +143,6 @@ export default function AuthPage() {
 
   const handleDiscordSignIn = async () => {
     setIsLoading(true);
-
     try {
       await signInWithDiscord("/auth", "login");
     } catch {
@@ -166,10 +153,12 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen flex">
+      {/* Banner */}
       <div className="hidden lg:flex lg:w-3/5 relative">
         <img src={bannerSrc} className="absolute inset-0 w-full h-full object-cover" />
       </div>
 
+      {/* Right panel */}
       <div className="flex-1 flex flex-col lg:w-2/5">
         <div className="flex items-center justify-between p-4">
           <a href={VACOMPANY_URL} target="_blank">
@@ -179,55 +168,94 @@ export default function AuthPage() {
         </div>
 
         <div className="flex-1 flex items-center justify-center p-8">
-          <Card className="w-full max-w-sm">
-            <CardHeader>
-              <CardTitle>Sign in</CardTitle>
-              <CardDescription>Access the Crew Center</CardDescription>
-            </CardHeader>
+          {/* Glow wrapper */}
+          <div
+            className="relative w-full max-w-sm"
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          >
+            {/* Always-on subtle ambient glow */}
+            <div
+              style={{
+                position: "absolute",
+                inset: "-2px",
+                borderRadius: "16px",
+                background: "linear-gradient(135deg, #0066CC 0%, #00256C 100%)",
+                opacity: hovered ? 0 : 0.35,
+                filter: "blur(8px)",
+                transition: "opacity 0.7s ease",
+                zIndex: 0,
+              }}
+            />
 
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Email"
-                />
+            {/* Hover glow — brighter, wider blur, color shift */}
+            <div
+              style={{
+                position: "absolute",
+                inset: "-4px",
+                borderRadius: "16px",
+                background: "linear-gradient(135deg, #00256C 0%, #0066CC 45%, #00256C 100%)",
+                opacity: hovered ? 1 : 0,
+                filter: "blur(14px)",
+                transition: "opacity 0.7s ease",
+                zIndex: 0,
+              }}
+            />
 
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                />
+            {/* The actual card — sits above the glow layers */}
+            <Card
+              className="relative w-full"
+              style={{ zIndex: 1 }}
+            >
+              <CardHeader className="pb-4 pt-6">
+                <CardTitle className="text-xl">Sign in</CardTitle>
+                <CardDescription>Access the Crew Center</CardDescription>
+              </CardHeader>
 
-                <Button disabled={isLoading} className="w-full">
-                  {isLoading && <Loader2 className="animate-spin mr-2" />}
-                  Sign In
-                </Button>
+              <CardContent className="pb-6">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                  />
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleDiscordSignIn}
-                  className="w-full"
-                >
-                  <DiscordIcon className="mr-2" />
-                  Discord
-                </Button>
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                  />
 
-                <p className="text-center text-sm text-muted-foreground">
-                  Not a Pilot for KEVA yet?{" "}
-                  <Link
-                    to="/apply"
-                    className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
+                  <Button disabled={isLoading} className="w-full">
+                    {isLoading && <Loader2 className="animate-spin mr-2" />}
+                    Sign In
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleDiscordSignIn}
+                    className="w-full"
                   >
-                    Apply Now!
-                  </Link>
-                </p>
-              </form>
-            </CardContent>
-          </Card>
+                    <DiscordIcon className="mr-2" />
+                    Discord
+                  </Button>
+
+                  <p className="text-center text-sm text-muted-foreground pt-2">
+                    Not a Pilot for KEVA yet?{" "}
+                    <Link
+                      to="/apply"
+                      className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
+                    >
+                      Apply Now!
+                    </Link>
+                  </p>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <PolarisFooter />
