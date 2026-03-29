@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Loader2 } from "lucide-react";
+import { Loader2, LogIn, UserPlus, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { DiscordIcon } from "@/components/icons/DiscordIcon";
@@ -24,11 +24,15 @@ const loginSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
+type AuthMode = "choose" | "signin";
+
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [mode, setMode] = useState<AuthMode>("choose");
+  const [animating, setAnimating] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -53,13 +57,11 @@ export default function AuthPage() {
       data?.forEach((s: any) => {
         if (s.value) map[s.key] = s.value;
       });
-
       return map;
     },
   });
 
   const bannerSrc = siteSettings?.auth_banner_url || aeroflotBanner;
-  const logoSrc = siteSettings?.auth_logo_url || kevaLogo;
 
   useEffect(() => {
     const oauthMode = searchParams.get("oauth");
@@ -117,6 +119,20 @@ export default function AuthPage() {
     run();
   }, [searchParams, user, isAuthLoading, navigate, signOut]);
 
+  const handleSignInClick = () => {
+    setAnimating(true);
+    setMode("signin");
+    setTimeout(() => setAnimating(false), 600);
+  };
+
+  const handleBack = () => {
+    setAnimating(true);
+    setTimeout(() => {
+      setMode("choose");
+      setAnimating(false);
+    }, 300);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -152,115 +168,269 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Banner */}
-      <div className="hidden lg:flex lg:w-3/5 relative">
-        <img src={bannerSrc} className="absolute inset-0 w-full h-full object-cover" />
-      </div>
+    <>
+      {/* Keyframe styles */}
+      <style>{`
+        @keyframes slideInFromRight {
+          from {
+            opacity: 0;
+            transform: translateX(60px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+        @keyframes slideOutToRight {
+          from {
+            opacity: 1;
+            transform: translateX(0);
+          }
+          to {
+            opacity: 0;
+            transform: translateX(60px);
+          }
+        }
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(24px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .slide-in {
+          animation: slideInFromRight 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .slide-out {
+          animation: slideOutToRight 0.3s cubic-bezier(0.55, 0, 1, 0.45) forwards;
+        }
+        .fade-in-up {
+          animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .btn-chooser {
+          position: relative;
+          overflow: hidden;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .btn-chooser:hover {
+          transform: translateY(-2px);
+        }
+        .btn-chooser::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: rgba(255,255,255,0.07);
+          opacity: 0;
+          transition: opacity 0.2s ease;
+        }
+        .btn-chooser:hover::after {
+          opacity: 1;
+        }
+      `}</style>
 
-      {/* Right panel */}
-      <div className="flex-1 flex flex-col lg:w-2/5">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4">
-          <a href={VACOMPANY_URL} target="_blank">
-            <img
-               src={vacompanyLogo}
-               className="h-10 transition dark:invert dark:brightness-150"
-               alt="VACompany Logo"
-            />
-          </a>
-          <ThemeToggle />
+      <div className="min-h-screen flex">
+        {/* Banner */}
+        <div className="hidden lg:flex lg:w-3/5 relative">
+          <img
+            src={bannerSrc}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {/* Subtle overlay so text is always readable */}
+          <div className="absolute inset-0 bg-gradient-to-r from-black/10 to-black/30" />
         </div>
 
-        {/* Content */}
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div
-            className="relative w-full max-w-sm"
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-          >
-            {/* Ambient glow */}
-            <div
-              style={{
-                position: "absolute",
-                inset: "-2px",
-                borderRadius: "16px",
-                background: "linear-gradient(135deg, #0066CC 0%, #00256C 100%)",
-                opacity: hovered ? 0 : 0.35,
-                filter: "blur(8px)",
-                transition: "opacity 0.7s ease",
-                zIndex: 0,
-              }}
-            />
-
-            {/* Hover glow */}
-            <div
-              style={{
-                position: "absolute",
-                inset: "-4px",
-                borderRadius: "16px",
-                background: "linear-gradient(135deg, #00256C 0%, #0066CC 45%, #00256C 100%)",
-                opacity: hovered ? 1 : 0,
-                filter: "blur(14px)",
-                transition: "opacity 0.7s ease",
-                zIndex: 0,
-              }}
-            />
-
-            <Card className="relative w-full" style={{ zIndex: 1 }}>
-              <CardHeader className="pb-4 pt-6">
-                <CardTitle className="text-xl">Sign in</CardTitle>
-                <CardDescription>Access the Crew Center</CardDescription>
-              </CardHeader>
-
-              <CardContent className="pb-6">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email"
-                  />
-
-                  <Input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password"
-                  />
-
-                  <Button disabled={isLoading} className="w-full">
-                    {isLoading && <Loader2 className="animate-spin mr-2" />}
-                    Sign In
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleDiscordSignIn}
-                    className="w-full"
-                  >
-                    <DiscordIcon className="mr-2" />
-                    Apply/Sign-In with Discord
-                  </Button>
-
-                  <p className="text-center text-sm text-muted-foreground pt-2">
-                    Not a Pilot for KEVA yet?{" "}
-                    <Link
-                      to="/apply"
-                      className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
-                    >
-                      Apply Now!
-                    </Link>
-                  </p>
-                </form>
-              </CardContent>
-            </Card>
+        {/* Right panel */}
+        <div className="flex-1 flex flex-col lg:w-2/5">
+          <div className="flex items-center justify-between p-4">
+            <a href={VACOMPANY_URL} target="_blank" rel="noreferrer">
+              <img src={vacompanyLogo} className="h-10" alt="VA Company" />
+            </a>
+            <ThemeToggle />
           </div>
-        </div>
 
-        <PolarisFooter />
+          <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
+
+            {/* ── CHOOSE MODE ── */}
+            {mode === "choose" && (
+              <div
+                className="w-full max-w-sm space-y-6 fade-in-up"
+                key="choose"
+              >
+                {/* Heading */}
+                <div className="text-center space-y-1">
+                  <h1 className="text-3xl font-bold tracking-tight">
+                    Welcome to KEVA
+                  </h1>
+                  <p className="text-muted-foreground text-sm">
+                    Crew Center — choose how to continue
+                  </p>
+                </div>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-xs text-muted-foreground uppercase tracking-widest">
+                    continue as
+                  </span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* Sign In button */}
+                <button
+                  onClick={handleSignInClick}
+                  className="btn-chooser w-full rounded-xl border border-border bg-card px-5 py-4 flex items-center gap-4 text-left shadow-sm hover:border-[#0066CC]/60 hover:shadow-[0_0_18px_0_rgba(0,102,204,0.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  style={{ transition: "border-color 0.25s, box-shadow 0.25s, transform 0.2s" }}
+                >
+                  <span
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+                    style={{
+                      background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
+                    }}
+                  >
+                    <LogIn className="h-5 w-5 text-white" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold text-sm">Sign In</span>
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      Access your pilot dashboard
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+
+                {/* Sign Up button */}
+                <Link
+                  to="/apply"
+                  className="btn-chooser w-full rounded-xl border border-border bg-card px-5 py-4 flex items-center gap-4 text-left shadow-sm hover:border-[#0066CC]/60 hover:shadow-[0_0_18px_0_rgba(0,102,204,0.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
+                  style={{ transition: "border-color 0.25s, box-shadow 0.25s, transform 0.2s", display: "flex" }}
+                >
+                  <span
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
+                    style={{
+                      background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
+                    }}
+                  >
+                    <UserPlus className="h-5 w-5 text-white" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold text-sm">Sign Up</span>
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      Apply to join the KEVA fleet
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </Link>
+              </div>
+            )}
+
+            {/* ── SIGN IN MODE ── */}
+            {mode === "signin" && (
+              <div
+                className={`relative w-full max-w-sm ${animating ? "slide-out" : "slide-in"}`}
+                key="signin"
+                onMouseEnter={() => setHovered(true)}
+                onMouseLeave={() => setHovered(false)}
+              >
+                {/* Ambient glow — resting */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: "-2px",
+                    borderRadius: "16px",
+                    background: "linear-gradient(135deg, #0066CC 0%, #00256C 100%)",
+                    opacity: hovered ? 0 : 0.35,
+                    filter: "blur(8px)",
+                    transition: "opacity 0.7s ease",
+                    zIndex: 0,
+                  }}
+                />
+                {/* Hover glow — brighter */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: "-4px",
+                    borderRadius: "16px",
+                    background: "linear-gradient(135deg, #00256C 0%, #0066CC 45%, #00256C 100%)",
+                    opacity: hovered ? 1 : 0,
+                    filter: "blur(14px)",
+                    transition: "opacity 0.7s ease",
+                    zIndex: 0,
+                  }}
+                />
+
+                <Card className="relative w-full" style={{ zIndex: 1 }}>
+                  <CardHeader className="pb-3 pt-6">
+                    <div className="flex items-center gap-2">
+                      {/* Back button */}
+                      <button
+                        onClick={handleBack}
+                        className="text-muted-foreground hover:text-foreground transition-colors p-1 -ml-1 rounded-md hover:bg-muted"
+                        aria-label="Go back"
+                      >
+                        <ArrowRight className="h-4 w-4 rotate-180" />
+                      </button>
+                      <div>
+                        <CardTitle className="text-xl leading-tight">Sign in</CardTitle>
+                        <CardDescription className="text-xs mt-0.5">
+                          Access the Crew Center
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="pb-6">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="Email"
+                      />
+
+                      <Input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Password"
+                      />
+
+                      <Button disabled={isLoading} className="w-full">
+                        {isLoading && <Loader2 className="animate-spin mr-2" />}
+                        Sign In
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleDiscordSignIn}
+                        className="w-full"
+                      >
+                        <DiscordIcon className="mr-2" />
+                        Discord
+                      </Button>
+
+                      <p className="text-center text-sm text-muted-foreground pt-1">
+                        Not a Pilot for KEVA yet?{" "}
+                        <Link
+                          to="/apply"
+                          className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
+                        >
+                          Apply Now!
+                        </Link>
+                      </p>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
+
+          <PolarisFooter />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
