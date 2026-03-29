@@ -18,6 +18,7 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const FilePirep = lazy(() => import("@/pages/FilePirep"));
 const PirepHistory = lazy(() => import("@/pages/PirepHistory"));
 const RoutesPage = lazy(() => import("@/pages/Routes"));
+const RouteMap = lazy(() => import("@/pages/RouteMap")); 
 const RoutesOfTheWeek = lazy(() => import("@/pages/RoutesOfTheWeek"));
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const Events = lazy(() => import("@/pages/Events"));
@@ -110,6 +111,7 @@ const App = () => (
                       <Route path="file-atc-pirep" element={<FileAtcPirep />} />
 
                       <Route path="routes" element={<RoutesPage />} />
+                      <Route path="/route-map" element={<RouteMap />} />
                       <Route path="rotw" element={<RoutesOfTheWeek />} />
                       <Route path="leaderboard" element={<Leaderboard />} />
                       <Route path="events" element={<Events />} />
