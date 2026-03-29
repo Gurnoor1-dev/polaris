@@ -25,11 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [pilot, setPilot] = useState<any | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  // isLoading = true until we know whether a session exists (auth check only)
   const [isLoading, setIsLoading] = useState(true);
-  // isPilotLoading = true while we're fetching the pilots row
   const [isPilotLoading, setIsPilotLoading] = useState(false);
   const isMounted = useRef(true);
+  // Use a ref to track init status so the auth listener
+  // can read the CURRENT value without a stale closure.
+  const initDoneRef = useRef(false);
 
   const fetchPilotData = async (userId: string) => {
     if (!isMounted.current) return;
@@ -59,15 +60,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     isMounted.current = true;
+    initDoneRef.current = false;
 
-    // Hard timeout: if Supabase takes > 8s, unblock the UI
     const forceUnblock = setTimeout(() => {
       if (isMounted.current) {
         console.warn("Auth init timed out — unblocking UI");
+        initDoneRef.current = true;
         setIsLoading(false);
         setIsPilotLoading(false);
       }
     }, 8000);
+
+    // Set up the listener BEFORE calling getSession so we never miss an event.
+    // We guard with initDoneRef (a ref, not state) to avoid the stale closure
+    // that was causing the listener to always bail out early.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!isMounted.current) return;
+
+      // Drop events that fire during initial load — initializeAuth handles those.
+      if (!initDoneRef.current) return;
+
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+
+      if (currentSession?.user) {
+        await fetchPilotData(currentSession.user.id);
+      } else {
+        setPilot(null);
+        setIsAdmin(false);
+      }
+    });
 
     const initializeAuth = async () => {
       try {
@@ -81,47 +105,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSession && isMounted.current) {
           setSession(initialSession);
           setUser(initialSession.user);
-          // Fetch pilot BEFORE marking auth as ready so ProtectedRoute
-          // never sees a flash of "no pilot" while we're still loading.
           await fetchPilotData(initialSession.user.id);
         }
       } catch (err) {
         console.error("Auth init error:", err);
       } finally {
         clearTimeout(forceUnblock);
-        if (isMounted.current) setIsLoading(false);
+        if (isMounted.current) {
+          // Mark init done BEFORE flipping isLoading so the listener
+          // is armed the instant React re-renders with isLoading=false.
+          initDoneRef.current = true;
+          setIsLoading(false);
+        }
       }
     };
 
     initializeAuth();
-
-    // Listen for sign-in / sign-out events that happen AFTER init
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      if (!isMounted.current) return;
-
-      // Only handle events AFTER the initial load is done, to avoid
-      // double-fetching pilot data on startup.
-      if (isLoading) return;
-
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-
-      if (currentSession?.user) {
-        await fetchPilotData(currentSession.user.id);
-      } else {
-        setPilot(null);
-        setIsAdmin(false);
-      }
-    });
 
     return () => {
       isMounted.current = false;
       subscription.unsubscribe();
       clearTimeout(forceUnblock);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -134,7 +139,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) return { error };
       if (!data.user) return { error: new Error("No user returned") };
 
-      // Check approval status
       const { data: p, error: pError } = await supabase
         .from("pilots")
         .select("approval_status")
@@ -148,7 +152,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: new Error(PENDING_APPROVAL_MESSAGE) };
       }
 
-      // Fetch pilot data immediately after sign-in so the app is ready
       await fetchPilotData(data.user.id);
       setUser(data.user);
       setSession(data.session);
