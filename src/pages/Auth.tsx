@@ -29,11 +29,6 @@ const loginSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-// Possible states for the OAuth flow so we never run it twice
-// and we never let the "user is logged in → go to /" effect
-// fire while OAuth processing is still in flight.
-type OAuthState = "idle" | "processing" | "done";
-
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,13 +36,9 @@ export default function AuthPage() {
   const [hovered, setHovered] = useState(false);
   const [signinVisible, setSigninVisible] = useState(false);
 
-  // Tracks whether this page load is an OAuth callback
-  const isOAuthCallback =
-    typeof window !== "undefined" &&
-    (new URLSearchParams(window.location.search).has("oauth") ||
-      window.location.hash.includes("access_token"));
-
-  const oauthStateRef = useRef<OAuthState>("idle");
+  // Ref-only guard — prevents the async OAuth handler from running twice.
+  // We use a ref (not state) so setting it never causes a re-render loop.
+  const oauthRanRef = useRef(false);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -70,97 +61,83 @@ export default function AuthPage() {
 
   const bannerSrc = siteSettings?.auth_banner_url || aeroflotBanner;
 
-  // ── Effect 1: Normal "already logged in" redirect ──────────────────────────
-  // ONLY fires when this is NOT an OAuth callback.
-  // If it is an OAuth callback, Effect 2 owns navigation.
-  useEffect(() => {
-    if (isOAuthCallback) return;          // OAuth flow owns this
-    if (isAuthLoading) return;            // Not ready yet
-    if (!user) return;                    // Nothing to do
-    navigate("/", { replace: true });
-  }, [user, isAuthLoading, isOAuthCallback, navigate]);
+  // Detect once — stable across renders
+  const isOAuthCallback = useRef(
+    new URLSearchParams(window.location.search).has("oauth") ||
+    window.location.hash.includes("access_token")
+  ).current;
 
-  // ── Effect 2: OAuth callback handler ──────────────────────────────────────
+  // ── Effect: handles BOTH normal login redirect AND OAuth callback ──────────
   useEffect(() => {
-    // Only run on OAuth callbacks
-    if (!isOAuthCallback) return;
-    // Wait until auth context has resolved
+    // Nothing to do until auth context has resolved
     if (isAuthLoading) return;
-    // No user session yet — Supabase hasn't processed the token yet, wait
+
+    // No user → nothing to redirect
     if (!user) return;
-    // Already handled (or currently handling) — do not run again
-    if (oauthStateRef.current !== "idle") return;
 
-    // Lock immediately so no re-render can trigger a second run
-    oauthStateRef.current = "processing";
+    // ── OAuth callback path ────────────────────────────────────────────────
+    if (isOAuthCallback) {
+      // Prevent double execution across re-renders
+      if (oauthRanRef.current) return;
+      oauthRanRef.current = true;
 
-    const run = async () => {
-      try {
-        const discordHandle =
-          user.user_metadata?.preferred_username ||
-          user.user_metadata?.name ||
-          user.email?.split("@")[0] ||
-          "unknown";
+      const handleOAuth = async () => {
+        try {
+          const discordHandle =
+            user.user_metadata?.preferred_username ||
+            user.user_metadata?.name ||
+            user.email?.split("@")[0] ||
+            "unknown";
 
-        const displayName =
-          user.user_metadata?.full_name || discordHandle;
+          const displayName = user.user_metadata?.full_name || discordHandle;
+          const normalized = normalizeDiscordUsername(discordHandle);
 
-        const normalized = normalizeDiscordUsername(discordHandle);
+          // 1. Look for an approved pilot row
+          const { data: existingPilot, error: pilotErr } = await supabase
+            .from("pilots")
+            .select("id, user_id, full_name, approval_status")
+            .eq("discord_username", normalized)
+            .maybeSingle();
 
-        // 1. Check for existing approved pilot row
-        const { data: existingPilot, error: pilotErr } = await supabase
-          .from("pilots")
-          .select("id, user_id, full_name, approval_status")
-          .eq("discord_username", normalized)
-          .maybeSingle();
+          if (pilotErr) throw pilotErr;
 
-        if (pilotErr) throw pilotErr;
+          if (existingPilot) {
+            if (existingPilot.approval_status !== "approved") {
+              toast.info(PENDING_APPROVAL_MESSAGE);
+              await signOut();
+              navigate("/auth", { replace: true });
+              return;
+            }
 
-        if (existingPilot) {
-          if (existingPilot.approval_status !== "approved") {
-            // Pilot exists but not yet approved
+            // Link user_id on first OAuth login after approval
+            if (!existingPilot.user_id || existingPilot.user_id !== user.id) {
+              await supabase
+                .from("pilots")
+                .update({ user_id: user.id })
+                .eq("id", existingPilot.id);
+            }
+
+            toast.success(`Welcome back, ${existingPilot.full_name}!`);
+            navigate("/", { replace: true });
+            return;
+          }
+
+          // 2. Check for existing pending application
+          const { data: existingApp } = await supabase
+            .from("pilot_applications")
+            .select("status")
+            .eq("discord_username", normalized)
+            .maybeSingle();
+
+          if (existingApp) {
             toast.info(PENDING_APPROVAL_MESSAGE);
             await signOut();
-            oauthStateRef.current = "done";
             navigate("/auth", { replace: true });
             return;
           }
 
-          // Approved pilot — link user_id if needed (first OAuth login after approval)
-          if (!existingPilot.user_id || existingPilot.user_id !== user.id) {
-            await supabase
-              .from("pilots")
-              .update({ user_id: user.id })
-              .eq("id", existingPilot.id);
-          }
-
-          toast.success(`Welcome back, ${existingPilot.full_name}!`);
-          oauthStateRef.current = "done";
-          // Small delay so toast renders before navigation
-          setTimeout(() => navigate("/", { replace: true }), 100);
-          return;
-        }
-
-        // 2. No pilot row — check for existing pending application
-        const { data: existingApp } = await supabase
-          .from("pilot_applications")
-          .select("status")
-          .eq("discord_username", normalized)
-          .maybeSingle();
-
-        if (existingApp) {
-          // Application already submitted
-          toast.info(PENDING_APPROVAL_MESSAGE);
-          await signOut();
-          oauthStateRef.current = "done";
-          navigate("/auth", { replace: true });
-          return;
-        }
-
-        // 3. Completely new user — create application
-        const { error: upsertErr } = await supabase
-          .from("pilot_applications")
-          .upsert(
+          // 3. Brand new — create application
+          await supabase.from("pilot_applications").upsert(
             {
               user_id: user.id,
               email: user.email ?? "",
@@ -172,26 +149,28 @@ export default function AuthPage() {
             { onConflict: "user_id" }
           );
 
-        if (upsertErr) throw upsertErr;
+          toast.info(PENDING_APPROVAL_MESSAGE);
+          await signOut();
+          navigate("/auth", { replace: true });
+        } catch (err: any) {
+          console.error("OAuth handler error:", err);
+          toast.error("Sign-in failed. Please try again.");
+          oauthRanRef.current = false; // allow retry
+          await signOut();
+          navigate("/auth", { replace: true });
+        }
+      };
 
-        toast.info(PENDING_APPROVAL_MESSAGE);
-        await signOut();
-        oauthStateRef.current = "done";
-        navigate("/auth", { replace: true });
-      } catch (err: any) {
-        console.error("OAuth handler error:", err);
-        toast.error("Something went wrong during sign-in. Please try again.");
-        // Reset so the user can retry
-        oauthStateRef.current = "idle";
-        await signOut();
-        navigate("/auth", { replace: true });
-      }
-    };
+      handleOAuth();
+      return;
+    }
 
-    run();
-  }, [isOAuthCallback, isAuthLoading, user, navigate, signOut]);
+    // ── Normal login path: user is set, not an OAuth callback → go home ──
+    navigate("/", { replace: true });
 
-  // ── Normal email sign-in ───────────────────────────────────────────────────
+  }, [isAuthLoading, user, isOAuthCallback, navigate, signOut]);
+
+  // ── Email sign-in ──────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const validation = loginSchema.safeParse({ email, password });
@@ -203,7 +182,7 @@ export default function AuthPage() {
     try {
       const { error } = await signIn(email, password);
       if (error) toast.error(error.message);
-      // Navigation is handled by Effect 1 reacting to user state change
+      // navigate handled by the effect above reacting to user state change
     } catch {
       toast.error("Unexpected error");
     } finally {
@@ -215,16 +194,18 @@ export default function AuthPage() {
     setIsLoading(true);
     try {
       await signInWithDiscord("/auth", "login");
-      // Browser redirects away — setIsLoading(false) never needed
+      // browser redirects away — never reaches here
     } catch {
       toast.error("Discord login failed");
       setIsLoading(false);
     }
   };
 
-  // While the OAuth flow is being processed show a full-screen loader
-  // so the user sees feedback and the auth effects don't race
-  if (isOAuthCallback && (isAuthLoading || oauthStateRef.current === "processing")) {
+  // Show a full-screen loader ONLY while the OAuth callback is in flight
+  // and we still have a user (i.e. Supabase gave us a session).
+  // Once signOut() clears user we'll render the normal UI briefly before
+  // navigate fires — that's fine, it's instant.
+  if (isOAuthCallback && !isAuthLoading && user) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#030712] text-white gap-4">
         <Loader2 className="h-10 w-10 animate-spin text-[#0066CC]" />
@@ -321,8 +302,7 @@ export default function AuthPage() {
                     <span
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
                       style={{
-                        background:
-                          "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
+                        background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
                       }}
                     >
                       <LogIn className="h-5 w-5 text-white" />
@@ -345,8 +325,7 @@ export default function AuthPage() {
                     <span
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
                       style={{
-                        background:
-                          "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
+                        background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
                       }}
                     >
                       <UserPlus className="h-5 w-5 text-white" />
@@ -378,8 +357,7 @@ export default function AuthPage() {
                       position: "absolute",
                       inset: "-2px",
                       borderRadius: "16px",
-                      background:
-                        "linear-gradient(135deg, #0066CC 0%, #00256C 100%)",
+                      background: "linear-gradient(135deg, #0066CC 0%, #00256C 100%)",
                       opacity: hovered ? 0 : 0.35,
                       filter: "blur(8px)",
                       transition: "opacity 0.7s ease",
@@ -391,8 +369,7 @@ export default function AuthPage() {
                       position: "absolute",
                       inset: "-4px",
                       borderRadius: "16px",
-                      background:
-                        "linear-gradient(135deg, #00256C 0%, #0066CC 45%, #00256C 100%)",
+                      background: "linear-gradient(135deg, #00256C 0%, #0066CC 45%, #00256C 100%)",
                       opacity: hovered ? 1 : 0,
                       filter: "blur(14px)",
                       transition: "opacity 0.7s ease",
@@ -438,9 +415,7 @@ export default function AuthPage() {
                           autoComplete="current-password"
                         />
                         <Button disabled={isLoading} className="w-full">
-                          {isLoading && (
-                            <Loader2 className="animate-spin mr-2" />
-                          )}
+                          {isLoading && <Loader2 className="animate-spin mr-2" />}
                           Sign In
                         </Button>
                         <Button
