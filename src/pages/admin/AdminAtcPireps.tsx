@@ -3,41 +3,54 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Navigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Radio, Search, Check, X, Pause, Clock, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import {
+  Radio, Search, Check, X, Pause, Clock,
+  ChevronLeft, ChevronRight, Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
 
 const FREQ_MAP: Record<string, string> = {
-  G: "Ground",
-  T: "Tower",
-  S: "ATIS",
-  A: "Approach",
-  D: "Departure",
-  C: "Center",
+  G: "Ground", T: "Tower", S: "ATIS",
+  A: "Approach", D: "Departure", C: "Center",
 };
 
 const PAGE_SIZE = 15;
 
-const calculateDuration = (open: string, close: string): number => {
+// ── Raw frequency duration in decimal hours ───────────────────────────────────
+const calculateRawHours = (open: string, close: string): number => {
   if (!open || !close) return 0;
   try {
-    const [startH, startM] = open.split(":").map(Number);
-    const [endH, endM] = close.split(":").map(Number);
-    let startTotal = startH * 60 + startM;
-    let endTotal = endH * 60 + endM;
-    if (endTotal < startTotal) endTotal += 24 * 60;
-    return (endTotal - startTotal) / 60;
+    const [sh, sm] = open.split(":").map(Number);
+    const [eh, em] = close.split(":").map(Number);
+    let start = sh * 60 + sm;
+    let end = eh * 60 + em;
+    if (end < start) end += 24 * 60; // overnight session
+    return (end - start) / 60;
   } catch {
     return 0;
   }
+};
+
+// ── Total hours = raw × multiplier stored on the pirep ───────────────────────
+const calculateTotalHours = (pirep: any): number => {
+  const raw = calculateRawHours(pirep.freq_open_time, pirep.freq_close_time);
+  const multiplier = Number(pirep.multiplier) || 1;
+  return parseFloat((raw * multiplier).toFixed(4));
 };
 
 const formatHours = (hours: number) => {
@@ -64,43 +77,33 @@ export default function AdminAtcPireps() {
     setReason("");
   };
 
+  // ── Fetch PIREPs + merge pilot info ────────────────────────────────────────
   const { data, isLoading } = useQuery({
     queryKey: ["atc_admin_queue", statusFilter],
     queryFn: async () => {
-      // 1. Fetch ATC PIREPs
       let query = supabase
         .from("atc_pireps")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
-      }
+      if (statusFilter !== "all") query = query.eq("status", statusFilter);
 
       const { data: pireps, error } = await query;
       if (error) throw error;
       if (!pireps?.length) return [];
 
-      // 2. Fetch ALL pilots (user_id + id both, for dual-matching)
-      const { data: pilots, error: pErr } = await supabase
+      const { data: pilots } = await supabase
         .from("pilots")
         .select("id, user_id, full_name, pid");
 
-      if (pErr) console.error("Pilot fetch error:", pErr);
-
-      const pilotList = pilots ?? [];
-
-      // 3. Merge — try user_id match first, fall back to nothing (don't guess)
-      return pireps.map((p) => {
-        const pilot =
-          pilotList.find((pl) => pl.user_id && pl.user_id === p.user_id) ??
-          null;
-
-        return { ...p, pilot };
-      });
+      return pireps.map((p) => ({
+        ...p,
+        pilot: (pilots ?? []).find((pl) => pl.user_id && pl.user_id === p.user_id) ?? null,
+      }));
     },
   });
 
+  // ── Status update + pilot hours sync ──────────────────────────────────────
   const updateStatus = useMutation({
     mutationFn: async ({
       pirep,
@@ -112,16 +115,13 @@ export default function AdminAtcPireps() {
       reason?: string;
     }) => {
       const oldStatus = pirep.status;
-      const rawHours =
-        calculateDuration(pirep.freq_open_time, pirep.freq_close_time) *
-        (Number(pirep.multiplier) || 1);
 
-      // ── Step 1: Update atc_pireps status ───────────────────────────────
-      // Only send columns that definitely exist on the table.
-      // Avoid sending status_reason / reviewed_at if your table doesn't have them —
-      // Supabase will return a 400 and silently swallow it unless we check the error.
+      // Hours this session is worth (raw duration × stored multiplier)
+      const sessionHours = calculateTotalHours(pirep);
+
+      // ── 1. Update the pirep row status ────────────────────────────────────
       const updatePayload: Record<string, any> = { status: newStatus };
-      if (reason?.trim()) updatePayload.remarks = reason.trim(); // use remarks col if no status_reason
+      if (reason?.trim()) updatePayload.remarks = reason.trim();
 
       const { error: updateError } = await supabase
         .from("atc_pireps")
@@ -129,56 +129,56 @@ export default function AdminAtcPireps() {
         .eq("id", pirep.id);
 
       if (updateError) {
-        console.error("ATC PIREP update error:", updateError);
-        throw new Error(updateError.message || "Failed to update ATC PIREP status");
+        console.error("atc_pireps update error:", updateError);
+        throw new Error(updateError.message || "Failed to update ATC PIREP");
       }
 
-      // ── Step 2: Sync pilot total_hours / total_pireps ─────────────────
-      if (!pirep.user_id) return; // can't update pilot hours without user_id
+      // ── 2. Sync pilot total_hours + total_pireps ──────────────────────────
+      if (!pirep.user_id) return; // no user_id = can't sync
 
-      const { data: pilot, error: pilotFetchError } = await supabase
+      const { data: pilot, error: fetchErr } = await supabase
         .from("pilots")
         .select("id, total_hours, total_pireps")
         .eq("user_id", pirep.user_id)
-        .maybeSingle(); // use maybeSingle so we don't throw if not found
+        .maybeSingle();
 
-      if (pilotFetchError) {
-        console.error("Pilot fetch error during hour sync:", pilotFetchError);
-        // Don't throw — status was already updated, hours sync is secondary
-        return;
+      if (fetchErr) {
+        console.error("Pilot fetch error:", fetchErr);
+        return; // status updated — hours sync is best-effort
       }
 
       if (!pilot) {
-        console.warn("No pilot row found for user_id:", pirep.user_id);
+        console.warn("No pilot row for user_id:", pirep.user_id);
         return;
       }
 
-      let h = Number(pilot.total_hours) || 0;
-      let p = Number(pilot.total_pireps) || 0;
+      let hours = Number(pilot.total_hours) || 0;
+      let pirepCount = Number(pilot.total_pireps) || 0;
 
       if (newStatus === "approved" && oldStatus !== "approved") {
-        h += rawHours;
-        p += 1;
+        // Newly approved → add hours + 1 pirep
+        hours += sessionHours;
+        pirepCount += 1;
       } else if (oldStatus === "approved" && newStatus !== "approved") {
-        h = Math.max(0, h - rawHours);
-        p = Math.max(0, p - 1);
+        // Un-approving → subtract hours + 1 pirep
+        hours = Math.max(0, hours - sessionHours);
+        pirepCount = Math.max(0, pirepCount - 1);
       } else {
-        // No hours change needed (e.g. pending → rejected, both non-approved)
+        // pending ↔ rejected etc. — no hours change
         return;
       }
 
-      const { error: pilotUpdateError } = await supabase
+      const { error: pilotUpdateErr } = await supabase
         .from("pilots")
         .update({
-          total_hours: parseFloat(h.toFixed(2)),
-          total_pireps: p,
+          total_hours: parseFloat(hours.toFixed(2)),
+          total_pireps: pirepCount,
         })
-        .eq("id", pilot.id); // use primary key `id`, not user_id, for the update
+        .eq("id", pilot.id); // always use PK for updates
 
-      if (pilotUpdateError) {
-        console.error("Pilot hours update error:", pilotUpdateError);
-        // Status already updated — just warn
-        toast.warning("Status updated but pilot hours sync failed. Check console.");
+      if (pilotUpdateErr) {
+        console.error("Pilot hours update error:", pilotUpdateErr);
+        toast.warning("Status updated but pilot hours sync failed.");
       }
     },
     onSuccess: () => {
@@ -199,24 +199,18 @@ export default function AdminAtcPireps() {
 
   const submitAction = () => {
     if (!selectedPirep || !actionType) return;
-    if ((actionType === "deny") && !reason.trim()) {
+    if (actionType === "deny" && !reason.trim()) {
       toast.error("Please provide a reason for rejection");
       return;
     }
-
     const newStatus =
       actionType === "approve" ? "approved" :
       actionType === "deny"    ? "rejected" :
-                                 "pending";  // hold = reset to pending
-
-    updateStatus.mutate({
-      pirep: selectedPirep,
-      newStatus,
-      reason: reason.trim() || undefined,
-    });
+                                 "pending";
+    updateStatus.mutate({ pirep: selectedPirep, newStatus, reason: reason.trim() || undefined });
   };
 
-  // Filter + paginate
+  // ── Filter + paginate ──────────────────────────────────────────────────────
   const filtered = (data ?? []).filter((item) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -259,10 +253,7 @@ export default function AdminAtcPireps() {
                 className="pl-9"
               />
             </div>
-            <Select
-              value={statusFilter}
-              onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
-            >
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
               <SelectTrigger className="w-full md:w-48">
                 <SelectValue placeholder="Filter status" />
               </SelectTrigger>
@@ -305,17 +296,18 @@ export default function AdminAtcPireps() {
                     <th className="text-left py-3 px-2 font-medium">Date</th>
                     <th className="text-left py-3 px-2 font-medium">Airport</th>
                     <th className="text-left py-3 px-2 font-medium">Shift (Z)</th>
-                    <th className="text-left py-3 px-2 font-medium">Duration</th>
-                    <th className="text-left py-3 px-2 font-medium">Stations</th>
+                    <th className="text-left py-3 px-2 font-medium">Raw</th>
                     <th className="text-left py-3 px-2 font-medium">Multiplier</th>
+                    <th className="text-left py-3 px-2 font-medium">Total Hours</th>
+                    <th className="text-left py-3 px-2 font-medium">Stations</th>
                     <th className="text-left py-3 px-2 font-medium">Status</th>
                     <th className="text-right py-3 px-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paged.map((item) => {
-                    const rawHours = calculateDuration(item.freq_open_time, item.freq_close_time);
-                    const totalHours = rawHours * (item.multiplier || 1);
+                    const raw = calculateRawHours(item.freq_open_time, item.freq_close_time);
+                    const total = calculateTotalHours(item);
                     const freqs: string[] = Array.isArray(item.selected_frequencies)
                       ? item.selected_frequencies : [];
 
@@ -349,11 +341,29 @@ export default function AdminAtcPireps() {
                           {item.freq_open_time} – {item.freq_close_time}
                         </td>
 
-                        {/* Duration */}
+                        {/* Raw hours */}
                         <td className="py-3 px-2">
-                          <div className="flex items-center gap-1.5 font-mono text-xs">
-                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span>{formatHours(totalHours)}</span>
+                          <div className="flex items-center gap-1 font-mono text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {formatHours(raw)}
+                          </div>
+                        </td>
+
+                        {/* Multiplier */}
+                        <td className="py-3 px-2">
+                          <Badge
+                            variant={Number(item.multiplier) !== 1 ? "default" : "secondary"}
+                            className="text-[10px] px-1.5"
+                          >
+                            ×{Number(item.multiplier || 1).toFixed(1)}
+                          </Badge>
+                        </td>
+
+                        {/* Total hours (raw × multiplier) */}
+                        <td className="py-3 px-2">
+                          <div className="flex items-center gap-1 font-mono text-xs font-semibold">
+                            <Clock className="h-3.5 w-3.5 text-primary" />
+                            <span className="text-primary">{formatHours(total)}</span>
                           </div>
                         </td>
 
@@ -375,15 +385,6 @@ export default function AdminAtcPireps() {
                               <span className="text-muted-foreground text-xs">—</span>
                             )}
                           </div>
-                        </td>
-
-                        {/* Multiplier */}
-                        <td className="py-3 px-2">
-                          {item.multiplier && Number(item.multiplier) !== 1 ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5">×{item.multiplier}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">×1</span>
-                          )}
                         </td>
 
                         {/* Status */}
@@ -467,9 +468,7 @@ export default function AdminAtcPireps() {
                       <span className="italic text-muted-foreground">Not linked</span>
                     )}
                     {selectedPirep.pilot?.pid && (
-                      <span className="text-muted-foreground text-xs ml-1">
-                        ({selectedPirep.pilot.pid})
-                      </span>
+                      <span className="text-muted-foreground text-xs ml-1">({selectedPirep.pilot.pid})</span>
                     )}
                   </span>
                 </div>
@@ -495,14 +494,23 @@ export default function AdminAtcPireps() {
                     ))}
                   </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Hours</span>
-                  <span className="font-mono font-semibold">
-                    {formatHours(
-                      calculateDuration(selectedPirep.freq_open_time, selectedPirep.freq_close_time) *
-                      (selectedPirep.multiplier || 1)
-                    )}
-                  </span>
+
+                {/* Hours breakdown */}
+                <div className="border-t pt-2 mt-1 space-y-1">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Raw Duration</span>
+                    <span className="font-mono">
+                      {formatHours(calculateRawHours(selectedPirep.freq_open_time, selectedPirep.freq_close_time))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Multiplier</span>
+                    <span className="font-mono">×{Number(selectedPirep.multiplier || 1).toFixed(1)}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-primary">
+                    <span>Total Hours (to be credited)</span>
+                    <span className="font-mono">{formatHours(calculateTotalHours(selectedPirep))}</span>
+                  </div>
                 </div>
               </div>
 
