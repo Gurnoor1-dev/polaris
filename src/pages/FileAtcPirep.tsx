@@ -1,13 +1,14 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Radio, ShieldCheck, Send, Clock, MapPin, Loader2, Zap } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Radio, ShieldCheck, Send, MapPin, Loader2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -23,31 +24,44 @@ const FREQ_MAP = [
 export default function PublicAtcPirep() {
   const [loading, setLoading] = useState(false);
   const [icao, setIcao] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [openTime, setOpenTime] = useState("");
   const [closeTime, setCloseTime] = useState("");
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [remarks, setRemarks] = useState("");
   const [isSup, setIsSup] = useState(false);
+  const [selectedMultiplier, setSelectedMultiplier] = useState<string>("1");
+
+  // Fetch active ATC multipliers from DB
+  const { data: atcMultipliers } = useQuery({
+    queryKey: ["atc-multiplier-configs-public"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("atc_multiplier_configs")
+        .select("id, name, value")
+        .eq("is_active", true)
+        .order("value");
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   const toggleFreq = (code: string) => {
     if (isSup) {
-      setSelectedCodes(prev => 
-        prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+      setSelectedCodes((prev) =>
+        prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
       );
       return;
     }
 
-    setSelectedCodes(prev => {
+    setSelectedCodes((prev) => {
       const isSelecting = !prev.includes(code);
-      if (!isSelecting) return prev.filter(c => c !== code);
+      if (!isSelecting) return prev.filter((c) => c !== code);
 
-      // Logic Rules:
-      const hasGorT = prev.some(c => ["G", "T"].includes(c));
-      const hasAorD = prev.some(c => ["A", "D"].includes(c));
+      const hasGorT = prev.some((c) => ["G", "T"].includes(c));
+      const hasAorD = prev.some((c) => ["A", "D"].includes(c));
       const hasC = prev.includes("C");
 
-      // 1. Center Rule: Center only alone (except with ATIS)
       if (code === "C" && (hasGorT || hasAorD)) {
         toast.error("Center cannot be combined with G, T, A, or D");
         return prev;
@@ -56,8 +70,6 @@ export default function PublicAtcPirep() {
         toast.error("Cannot add stations to a Center session");
         return prev;
       }
-
-      // 2. AD Rule: A/D can go with S, but not G/T/C
       if (["A", "D"].includes(code) && (hasGorT || hasC)) {
         toast.error("Approach/Departure cannot be combined with G, T, or C");
         return prev;
@@ -66,8 +78,6 @@ export default function PublicAtcPirep() {
         toast.error("Cannot combine G/T with an Approach/Departure session");
         return prev;
       }
-
-      // 3. GTS Rule: Ground/Tower can go with S, but not A/D/C
       if (["G", "T"].includes(code) && (hasAorD || hasC)) {
         toast.error("Ground/Tower cannot be combined with A, D, or C");
         return prev;
@@ -77,13 +87,41 @@ export default function PublicAtcPirep() {
     });
   };
 
+  // Preview: calculate duration and apply multiplier for live display
+  const calcDuration = () => {
+    if (!openTime || !closeTime) return null;
+    try {
+      const [sh, sm] = openTime.split(":").map(Number);
+      const [eh, em] = closeTime.split(":").map(Number);
+      let start = sh * 60 + sm;
+      let end = eh * 60 + em;
+      if (end < start) end += 24 * 60;
+      return (end - start) / 60;
+    } catch {
+      return null;
+    }
+  };
+
+  const rawHours = calcDuration();
+  const multiplierValue = parseFloat(selectedMultiplier) || 1;
+  const totalHours = rawHours !== null ? rawHours * multiplierValue : null;
+
+  const formatHours = (h: number) => {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedCodes.length === 0) return toast.error("Select at least one station");
-    
+    if (!openTime || !closeTime) return toast.error("Enter open and close times");
+
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Authentication required");
 
       const { error } = await supabase.from("atc_pireps").insert({
@@ -96,14 +134,22 @@ export default function PublicAtcPirep() {
         remarks,
         is_supervisor_override: isSup,
         status: "pending",
-        multiplier: isSup ? 1.5 : 1.0
+        // Save the selected multiplier value — this is what admin uses to compute hours
+        multiplier: multiplierValue,
       });
 
       if (error) throw error;
-      toast.success("PIREP Submitted Successfully");
-      setIcao(""); setOpenTime(""); setCloseTime(""); setSelectedCodes([]); setRemarks("");
+
+      toast.success("ATC PIREP submitted successfully!");
+      setIcao("");
+      setOpenTime("");
+      setCloseTime("");
+      setSelectedCodes([]);
+      setRemarks("");
+      setSelectedMultiplier("1");
+      setIsSup(false);
     } catch (err: any) {
-      toast.error(err.message);
+      toast.error(err.message || "Submission failed");
     } finally {
       setLoading(false);
     }
@@ -111,57 +157,131 @@ export default function PublicAtcPirep() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto py-10 animate-in fade-in duration-500">
-      
       <div className="flex items-center gap-4 mb-8">
         <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-inner">
           <Radio size={24} className="animate-pulse" />
         </div>
         <div>
-          <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none">ATC Dispatch</h1>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Flight Data Entry</p>
+          <h1 className="text-2xl font-black tracking-tighter uppercase italic leading-none">
+            ATC Dispatch
+          </h1>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
+            Session Data Entry
+          </p>
         </div>
       </div>
 
       <Card className="border-border bg-card/40 backdrop-blur-md shadow-2xl">
         <CardContent className="p-6 space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-            
+            {/* Airport + Date */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase opacity-60">Airport</Label>
                 <div className="relative">
                   <MapPin className="absolute left-3 top-2.5 text-muted-foreground" size={16} />
-                  <Input placeholder="ICAO" className="pl-10 font-bold uppercase" value={icao} onChange={e => setIcao(e.target.value)} required />
+                  <Input
+                    placeholder="ICAO"
+                    className="pl-10 font-bold uppercase"
+                    value={icao}
+                    onChange={(e) => setIcao(e.target.value)}
+                    maxLength={4}
+                    required
+                  />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase opacity-60">Date</Label>
-                <Input type="date" className="font-bold" value={date} onChange={e => setDate(e.target.value)} required />
+                <Input
+                  type="date"
+                  className="font-bold"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
+            {/* Open / Close times */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase opacity-60">Open (Z)</Label>
-                <Input type="time" className="font-bold" value={openTime} onChange={e => setOpenTime(e.target.value)} required />
+                <Input
+                  type="time"
+                  className="font-bold"
+                  value={openTime}
+                  onChange={(e) => setOpenTime(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase opacity-60">Close (Z)</Label>
-                <Input type="time" className="font-bold" value={closeTime} onChange={e => setCloseTime(e.target.value)} required />
+                <Input
+                  type="time"
+                  className="font-bold"
+                  value={closeTime}
+                  onChange={(e) => setCloseTime(e.target.value)}
+                  required
+                />
               </div>
             </div>
 
+            {/* Multiplier + live hours preview */}
+            <div className="grid grid-cols-2 gap-4 items-end">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase opacity-60 flex items-center gap-1">
+                  <Zap size={10} /> Hours Multiplier
+                </Label>
+                <Select value={selectedMultiplier} onValueChange={setSelectedMultiplier}>
+                  <SelectTrigger className="font-bold">
+                    <SelectValue placeholder="Select multiplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {/* Always show a standard 1x option */}
+                    <SelectItem value="1">Standard (1.0×)</SelectItem>
+                    {atcMultipliers?.map((m) => (
+                      <SelectItem key={m.id} value={String(m.value)}>
+                        {m.name} ({Number(m.value).toFixed(1)}×)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Live duration preview */}
+              {totalHours !== null && (
+                <div className="rounded-xl border bg-primary/5 border-primary/20 px-4 py-3 flex flex-col items-center justify-center">
+                  <p className="text-[9px] font-black uppercase opacity-60 tracking-widest mb-0.5">
+                    Total Hours
+                  </p>
+                  <p className="text-2xl font-black font-mono text-primary leading-none">
+                    {formatHours(totalHours)}
+                  </p>
+                  {multiplierValue !== 1 && rawHours !== null && (
+                    <p className="text-[9px] text-muted-foreground mt-1">
+                      {formatHours(rawHours)} × {multiplierValue}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Stations */}
             <div className="space-y-4">
-              <Label className="text-[10px] font-black uppercase opacity-60">Stations Controlled</Label>
+              <Label className="text-[10px] font-black uppercase opacity-60">
+                Stations Controlled
+              </Label>
               <div className="grid grid-cols-3 gap-2">
-                {FREQ_MAP.map(f => (
+                {FREQ_MAP.map((f) => (
                   <Button
                     key={f.code}
                     type="button"
                     variant={selectedCodes.includes(f.code) ? "default" : "outline"}
                     className={cn(
                       "h-14 flex flex-col items-center justify-center gap-0.5 border-white/10 transition-all",
-                      selectedCodes.includes(f.code) ? "bg-primary shadow-lg shadow-primary/20 scale-95" : "hover:bg-primary/5"
+                      selectedCodes.includes(f.code)
+                        ? "bg-primary shadow-lg shadow-primary/20 scale-95"
+                        : "hover:bg-primary/5"
                     )}
                     onClick={() => toggleFreq(f.code)}
                   >
@@ -172,37 +292,65 @@ export default function PublicAtcPirep() {
               </div>
             </div>
 
-            <div className={cn(
-              "p-4 rounded-2xl border transition-all flex items-center justify-between",
-              isSup ? "bg-amber-500/10 border-amber-500/30" : "bg-muted/30 border-white/5"
-            )}>
+            {/* Supervisor override */}
+            <div
+              className={cn(
+                "p-4 rounded-2xl border transition-all flex items-center justify-between",
+                isSup
+                  ? "bg-amber-500/10 border-amber-500/30"
+                  : "bg-muted/30 border-white/5"
+              )}
+            >
               <div className="flex items-center gap-3">
-                <div className={cn("p-2 rounded-lg bg-background/50", isSup && "animate-bounce")}>
-                  <ShieldCheck className={isSup ? "text-amber-500" : "text-muted-foreground"} size={20} />
+                <div
+                  className={cn(
+                    "p-2 rounded-lg bg-background/50",
+                    isSup && "animate-bounce"
+                  )}
+                >
+                  <ShieldCheck
+                    className={isSup ? "text-amber-500" : "text-muted-foreground"}
+                    size={20}
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase">Supervisor Override</p>
-                  <p className="text-[9px] font-bold text-muted-foreground">Unlock all station combinations</p>
+                  <p className="text-[9px] font-bold text-muted-foreground">
+                    Unlock all station combinations
+                  </p>
                 </div>
               </div>
-              <Switch checked={isSup} onCheckedChange={(val) => {
-                setIsSup(val);
-                if (!val) setSelectedCodes([]); 
-              }} />
+              <Switch
+                checked={isSup}
+                onCheckedChange={(val) => {
+                  setIsSup(val);
+                  if (!val) setSelectedCodes([]);
+                }}
+              />
             </div>
 
+            {/* Remarks */}
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase opacity-60">Remarks</Label>
-              <Textarea 
-                placeholder="Session details..." 
+              <Textarea
+                placeholder="Session details..."
                 className="bg-background/50 border-white/10 italic text-sm"
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
               />
             </div>
 
-            <Button disabled={loading} className="w-full h-14 bg-primary text-white font-black uppercase tracking-widest shadow-xl">
-              {loading ? <Loader2 className="animate-spin" /> : <><Send className="mr-2" size={18} /> File PIREP</>}
+            <Button
+              disabled={loading}
+              className="w-full h-14 bg-primary text-white font-black uppercase tracking-widest shadow-xl"
+            >
+              {loading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <>
+                  <Send className="mr-2" size={18} /> File PIREP
+                </>
+              )}
             </Button>
           </form>
         </CardContent>
