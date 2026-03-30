@@ -54,7 +54,6 @@ export default function AdminAtcPireps() {
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
 
-  // Dialog state
   const [selectedPirep, setSelectedPirep] = useState<any>(null);
   const [actionType, setActionType] = useState<"approve" | "deny" | "hold" | null>(null);
   const [reason, setReason] = useState("");
@@ -68,6 +67,7 @@ export default function AdminAtcPireps() {
   const { data, isLoading } = useQuery({
     queryKey: ["atc_admin_queue", statusFilter],
     queryFn: async () => {
+      // 1. Fetch ATC PIREPs
       let query = supabase
         .from("atc_pireps")
         .select("*")
@@ -79,16 +79,25 @@ export default function AdminAtcPireps() {
 
       const { data: pireps, error } = await query;
       if (error) throw error;
+      if (!pireps?.length) return [];
 
-      // Fetch pilots to merge
-      const { data: pilots } = await supabase
+      // 2. Fetch ALL pilots (user_id + id both, for dual-matching)
+      const { data: pilots, error: pErr } = await supabase
         .from("pilots")
-        .select("user_id, full_name, pid");
+        .select("id, user_id, full_name, pid");
 
-      return pireps.map((p) => ({
-        ...p,
-        pilot: pilots?.find((pl) => pl.user_id === p.user_id) ?? null,
-      }));
+      if (pErr) console.error("Pilot fetch error:", pErr);
+
+      const pilotList = pilots ?? [];
+
+      // 3. Merge — try user_id match first, fall back to nothing (don't guess)
+      return pireps.map((p) => {
+        const pilot =
+          pilotList.find((pl) => pl.user_id && pl.user_id === p.user_id) ??
+          null;
+
+        return { ...p, pilot };
+      });
     },
   });
 
@@ -107,52 +116,79 @@ export default function AdminAtcPireps() {
         calculateDuration(pirep.freq_open_time, pirep.freq_close_time) *
         (Number(pirep.multiplier) || 1);
 
-      await supabase
+      // ── Step 1: Update atc_pireps status ───────────────────────────────
+      // Only send columns that definitely exist on the table.
+      // Avoid sending status_reason / reviewed_at if your table doesn't have them —
+      // Supabase will return a 400 and silently swallow it unless we check the error.
+      const updatePayload: Record<string, any> = { status: newStatus };
+      if (reason?.trim()) updatePayload.remarks = reason.trim(); // use remarks col if no status_reason
+
+      const { error: updateError } = await supabase
         .from("atc_pireps")
-        .update({
-          status: newStatus,
-          ...(reason ? { status_reason: reason } : {}),
-          reviewed_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", pirep.id);
 
-      // Update pilot hours
-      if (pirep.user_id) {
-        const { data: pilot } = await supabase
-          .from("pilots")
-          .select("total_hours, total_pireps")
-          .eq("user_id", pirep.user_id)
-          .single();
+      if (updateError) {
+        console.error("ATC PIREP update error:", updateError);
+        throw new Error(updateError.message || "Failed to update ATC PIREP status");
+      }
 
-        if (pilot) {
-          let h = Number(pilot.total_hours) || 0;
-          let p = Number(pilot.total_pireps) || 0;
+      // ── Step 2: Sync pilot total_hours / total_pireps ─────────────────
+      if (!pirep.user_id) return; // can't update pilot hours without user_id
 
-          if (newStatus === "approved" && oldStatus !== "approved") {
-            h += rawHours;
-            p += 1;
-          } else if (oldStatus === "approved" && newStatus !== "approved") {
-            h = Math.max(0, h - rawHours);
-            p = Math.max(0, p - 1);
-          }
+      const { data: pilot, error: pilotFetchError } = await supabase
+        .from("pilots")
+        .select("id, total_hours, total_pireps")
+        .eq("user_id", pirep.user_id)
+        .maybeSingle(); // use maybeSingle so we don't throw if not found
 
-          await supabase
-            .from("pilots")
-            .update({
-              total_hours: parseFloat(h.toFixed(2)),
-              total_pireps: p,
-            })
-            .eq("user_id", pirep.user_id);
-        }
+      if (pilotFetchError) {
+        console.error("Pilot fetch error during hour sync:", pilotFetchError);
+        // Don't throw — status was already updated, hours sync is secondary
+        return;
+      }
+
+      if (!pilot) {
+        console.warn("No pilot row found for user_id:", pirep.user_id);
+        return;
+      }
+
+      let h = Number(pilot.total_hours) || 0;
+      let p = Number(pilot.total_pireps) || 0;
+
+      if (newStatus === "approved" && oldStatus !== "approved") {
+        h += rawHours;
+        p += 1;
+      } else if (oldStatus === "approved" && newStatus !== "approved") {
+        h = Math.max(0, h - rawHours);
+        p = Math.max(0, p - 1);
+      } else {
+        // No hours change needed (e.g. pending → rejected, both non-approved)
+        return;
+      }
+
+      const { error: pilotUpdateError } = await supabase
+        .from("pilots")
+        .update({
+          total_hours: parseFloat(h.toFixed(2)),
+          total_pireps: p,
+        })
+        .eq("id", pilot.id); // use primary key `id`, not user_id, for the update
+
+      if (pilotUpdateError) {
+        console.error("Pilot hours update error:", pilotUpdateError);
+        // Status already updated — just warn
+        toast.warning("Status updated but pilot hours sync failed. Check console.");
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["atc_admin_queue"] });
-      toast.success("ATC PIREP updated");
+      toast.success("ATC PIREP updated successfully");
       clearDialog();
     },
-    onError: () => {
-      toast.error("Failed to update PIREP");
+    onError: (err: any) => {
+      console.error("Mutation error:", err);
+      toast.error(err?.message || "Failed to update ATC PIREP");
     },
   });
 
@@ -163,19 +199,20 @@ export default function AdminAtcPireps() {
 
   const submitAction = () => {
     if (!selectedPirep || !actionType) return;
-    if ((actionType === "deny" || actionType === "hold") && !reason.trim()) {
-      toast.error("Please provide a reason");
+    if ((actionType === "deny") && !reason.trim()) {
+      toast.error("Please provide a reason for rejection");
       return;
     }
+
+    const newStatus =
+      actionType === "approve" ? "approved" :
+      actionType === "deny"    ? "rejected" :
+                                 "pending";  // hold = reset to pending
+
     updateStatus.mutate({
       pirep: selectedPirep,
-      newStatus:
-        actionType === "approve"
-          ? "approved"
-          : actionType === "deny"
-          ? "rejected"
-          : "pending",
-      reason: reason || undefined,
+      newStatus,
+      reason: reason.trim() || undefined,
     });
   };
 
@@ -218,19 +255,13 @@ export default function AdminAtcPireps() {
               <Input
                 placeholder="Search pilot, PID, or airport..."
                 value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setPage(1);
-                }}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                 className="pl-9"
               />
             </div>
             <Select
               value={statusFilter}
-              onValueChange={(v) => {
-                setStatusFilter(v);
-                setPage(1);
-              }}
+              onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
             >
               <SelectTrigger className="w-full md:w-48">
                 <SelectValue placeholder="Filter status" />
@@ -251,16 +282,13 @@ export default function AdminAtcPireps() {
         <CardHeader>
           <CardTitle>ATC Session Reports</CardTitle>
           <CardDescription>
-            {filtered.length} report{filtered.length !== 1 ? "s" : ""} found • Page{" "}
-            {safePage} of {totalPages}
+            {filtered.length} report{filtered.length !== 1 ? "s" : ""} found • Page {safePage} of {totalPages}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
+              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
             </div>
           ) : paged.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -286,41 +314,35 @@ export default function AdminAtcPireps() {
                 </thead>
                 <tbody>
                   {paged.map((item) => {
-                    const rawHours = calculateDuration(
-                      item.freq_open_time,
-                      item.freq_close_time
-                    );
+                    const rawHours = calculateDuration(item.freq_open_time, item.freq_close_time);
                     const totalHours = rawHours * (item.multiplier || 1);
                     const freqs: string[] = Array.isArray(item.selected_frequencies)
-                      ? item.selected_frequencies
-                      : [];
+                      ? item.selected_frequencies : [];
 
                     return (
-                      <tr
-                        key={item.id}
-                        className="border-b last:border-0 hover:bg-muted/50"
-                      >
+                      <tr key={item.id} className="border-b last:border-0 hover:bg-muted/50">
                         {/* Pilot */}
                         <td className="py-3 px-2">
-                          <p className="font-medium">
-                            {item.pilot?.full_name ?? (
-                              <span className="text-muted-foreground italic">Unknown</span>
-                            )}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.pilot?.pid ?? "—"}
-                          </p>
+                          {item.pilot ? (
+                            <>
+                              <p className="font-medium">{item.pilot.full_name}</p>
+                              <p className="text-xs text-muted-foreground">{item.pilot.pid}</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-muted-foreground italic text-xs">Not linked</p>
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {item.user_id?.slice(0, 12)}…
+                              </p>
+                            </>
+                          )}
                         </td>
 
                         {/* Date */}
-                        <td className="py-3 px-2 text-muted-foreground">
-                          {item.date ?? "—"}
-                        </td>
+                        <td className="py-3 px-2 text-muted-foreground">{item.date ?? "—"}</td>
 
                         {/* Airport */}
-                        <td className="py-3 px-2 font-mono font-semibold">
-                          {item.airport_icao}
-                        </td>
+                        <td className="py-3 px-2 font-mono font-semibold">{item.airport_icao}</td>
 
                         {/* Shift */}
                         <td className="py-3 px-2 font-mono text-xs text-muted-foreground">
@@ -358,9 +380,7 @@ export default function AdminAtcPireps() {
                         {/* Multiplier */}
                         <td className="py-3 px-2">
                           {item.multiplier && Number(item.multiplier) !== 1 ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5">
-                              ×{item.multiplier}
-                            </Badge>
+                            <Badge variant="outline" className="text-[10px] px-1.5">×{item.multiplier}</Badge>
                           ) : (
                             <span className="text-muted-foreground text-xs">×1</span>
                           )}
@@ -376,8 +396,7 @@ export default function AdminAtcPireps() {
                           <div className="flex items-center justify-end gap-1">
                             {item.status !== "approved" && (
                               <Button
-                                size="icon"
-                                variant="ghost"
+                                size="icon" variant="ghost"
                                 className="h-8 w-8 text-green-600 hover:bg-green-50 dark:hover:bg-green-950"
                                 onClick={() => handleAction(item, "approve")}
                                 title="Approve"
@@ -386,8 +405,7 @@ export default function AdminAtcPireps() {
                               </Button>
                             )}
                             <Button
-                              size="icon"
-                              variant="ghost"
+                              size="icon" variant="ghost"
                               className="h-8 w-8 text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-950"
                               onClick={() => handleAction(item, "hold")}
                               title="Reset to Pending"
@@ -395,8 +413,7 @@ export default function AdminAtcPireps() {
                               <Pause className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="icon"
-                              variant="ghost"
+                              size="icon" variant="ghost"
                               className="h-8 w-8 text-destructive hover:bg-red-50 dark:hover:bg-red-950"
                               onClick={() => handleAction(item, "deny")}
                               title="Reject"
@@ -417,27 +434,14 @@ export default function AdminAtcPireps() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-4 border-t mt-4">
               <p className="text-sm text-muted-foreground">
-                Showing {(safePage - 1) * PAGE_SIZE + 1}–
-                {Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
               </p>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={safePage === 1}
-                >
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="text-sm font-medium">
-                  {safePage} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={safePage === totalPages}
-                >
+                <span className="text-sm font-medium">{safePage} / {totalPages}</span>
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -455,22 +459,23 @@ export default function AdminAtcPireps() {
 
           {selectedPirep && (
             <div className="space-y-4 py-2">
-              {/* Pirep summary */}
               <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Pilot</span>
                   <span className="font-medium">
-                    {selectedPirep.pilot?.full_name ?? "Unknown"}{" "}
-                    <span className="text-muted-foreground text-xs">
-                      ({selectedPirep.pilot?.pid ?? "—"})
-                    </span>
+                    {selectedPirep.pilot?.full_name ?? (
+                      <span className="italic text-muted-foreground">Not linked</span>
+                    )}
+                    {selectedPirep.pilot?.pid && (
+                      <span className="text-muted-foreground text-xs ml-1">
+                        ({selectedPirep.pilot.pid})
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Airport</span>
-                  <span className="font-mono font-semibold">
-                    {selectedPirep.airport_icao}
-                  </span>
+                  <span className="font-mono font-semibold">{selectedPirep.airport_icao}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Shift</span>
@@ -482,15 +487,9 @@ export default function AdminAtcPireps() {
                   <span className="text-muted-foreground">Stations</span>
                   <div className="flex gap-1">
                     {(Array.isArray(selectedPirep.selected_frequencies)
-                      ? selectedPirep.selected_frequencies
-                      : []
+                      ? selectedPirep.selected_frequencies : []
                     ).map((code: string) => (
-                      <Badge
-                        key={code}
-                        variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
-                        title={FREQ_MAP[code]}
-                      >
+                      <Badge key={code} variant="secondary" className="text-[10px] px-1.5 py-0" title={FREQ_MAP[code]}>
                         {code}
                       </Badge>
                     ))}
@@ -500,26 +499,19 @@ export default function AdminAtcPireps() {
                   <span className="text-muted-foreground">Total Hours</span>
                   <span className="font-mono font-semibold">
                     {formatHours(
-                      calculateDuration(
-                        selectedPirep.freq_open_time,
-                        selectedPirep.freq_close_time
-                      ) * (selectedPirep.multiplier || 1)
+                      calculateDuration(selectedPirep.freq_open_time, selectedPirep.freq_close_time) *
+                      (selectedPirep.multiplier || 1)
                     )}
                   </span>
                 </div>
               </div>
 
-              {/* Reason — required for deny/hold, optional for approve */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">
                   {actionType === "approve" ? "Note (optional)" : "Reason *"}
                 </p>
                 <Textarea
-                  placeholder={
-                    actionType === "approve"
-                      ? "Any notes..."
-                      : "Explain your decision..."
-                  }
+                  placeholder={actionType === "approve" ? "Any notes..." : "Explain your decision..."}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
@@ -528,17 +520,13 @@ export default function AdminAtcPireps() {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={clearDialog}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={clearDialog}>Cancel</Button>
             <Button
               onClick={submitAction}
               disabled={updateStatus.isPending}
               variant={actionType === "deny" ? "destructive" : "default"}
             >
-              {updateStatus.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
+              {updateStatus.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Confirm {actionType}
             </Button>
           </DialogFooter>
