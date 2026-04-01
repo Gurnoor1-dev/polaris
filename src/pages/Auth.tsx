@@ -36,9 +36,7 @@ export default function AuthPage() {
   const [hovered, setHovered] = useState(false);
   const [signinVisible, setSigninVisible] = useState(false);
 
-  // Ref-only guard — prevents the async OAuth handler from running twice.
   const oauthRanRef = useRef(false);
-
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user, isAuthLoading, signIn, signInWithDiscord, signOut } = useAuth();
@@ -60,30 +58,20 @@ export default function AuthPage() {
 
   const bannerSrc = siteSettings?.auth_banner_url || aeroflotBanner;
 
-  // Detect once — stable across renders
   const isOAuthCallback = useRef(
     new URLSearchParams(window.location.search).has("oauth") ||
     window.location.hash.includes("access_token")
   ).current;
 
-  // ── Effect: handles BOTH normal login redirect AND OAuth callback ──────────
   useEffect(() => {
-    // Nothing to do until auth context has resolved
-    if (isAuthLoading) return;
+    if (isAuthLoading || !user) return;
 
-    // No user → nothing to redirect
-    if (!user) return;
-
-    // ── OAuth callback path ────────────────────────────────────────────────
     if (isOAuthCallback) {
-      // Prevent double execution across re-renders
       if (oauthRanRef.current) return;
       oauthRanRef.current = true;
 
       const handleOAuth = async () => {
         try {
-          console.log("OAuth handler running for user:", user.id);
-
           const discordHandle =
             user.user_metadata?.preferred_username ||
             user.user_metadata?.name ||
@@ -93,9 +81,6 @@ export default function AuthPage() {
           const displayName = user.user_metadata?.full_name || discordHandle;
           const normalized = normalizeDiscordUsername(discordHandle);
 
-          console.log("Discord handle:", discordHandle, "Normalized:", normalized);
-
-          // 1. Look for an approved pilot row
           const { data: existingPilot, error: pilotErr } = await supabase
             .from("pilots")
             .select("id, user_id, full_name, approval_status")
@@ -105,19 +90,14 @@ export default function AuthPage() {
           if (pilotErr) throw pilotErr;
 
           if (existingPilot) {
-            console.log("Found existing pilot:", existingPilot);
-            
             if (existingPilot.approval_status !== "approved") {
-              console.log("Pilot not approved, signing out");
               toast.info(PENDING_APPROVAL_MESSAGE);
               await signOut();
               navigate("/auth", { replace: true });
               return;
             }
 
-            // Link user_id on first OAuth login after approval
             if (!existingPilot.user_id || existingPilot.user_id !== user.id) {
-              console.log("Linking user_id to pilot");
               await supabase
                 .from("pilots")
                 .update({ user_id: user.id })
@@ -129,58 +109,36 @@ export default function AuthPage() {
             return;
           }
 
-          console.log("No existing pilot found");
-
-          // 2. Check for existing pending application
-          const { data: existingApp, error: appCheckErr } = await supabase
+          const { data: existingApp } = await supabase
             .from("pilot_applications")
             .select("status, id")
             .eq("discord_username", normalized)
             .maybeSingle();
 
-          if (appCheckErr) {
-            console.error("Error checking existing application:", appCheckErr);
-          }
-
           if (existingApp) {
-            console.log("Found existing application with status:", existingApp.status);
             toast.info(PENDING_APPROVAL_MESSAGE);
             await signOut();
             navigate("/auth", { replace: true });
             return;
           }
 
-          console.log("Creating new application for:", normalized);
-
-          // 3. Brand new — create application
-          const { error: createAppErr, data: newAppData } = await supabase
-            .from("pilot_applications")
-            .insert([
-              {
-                user_id: user.id,
-                email: user.email ?? "",
-                full_name: displayName,
-                discord_username: normalized,
-                discord_user_id: user.user_metadata?.provider_id ?? null,
-                status: "pending",
-              }
-            ])
-            .select();
-
-          if (createAppErr) {
-            console.error("Error creating application:", createAppErr);
-            throw createAppErr;
-          }
-
-          console.log("Application created successfully:", newAppData);
+          await supabase.from("pilot_applications").insert([
+            {
+              user_id: user.id,
+              email: user.email ?? "",
+              full_name: displayName,
+              discord_username: normalized,
+              discord_user_id: user.user_metadata?.provider_id ?? null,
+              status: "pending",
+            },
+          ]);
 
           toast.info(PENDING_APPROVAL_MESSAGE);
           await signOut();
           navigate("/auth", { replace: true });
         } catch (err: any) {
-          console.error("OAuth handler error:", err);
           toast.error("Sign-in failed. Please try again.");
-          oauthRanRef.current = false; // allow retry
+          oauthRanRef.current = false;
           await signOut();
           navigate("/auth", { replace: true });
         }
@@ -190,12 +148,9 @@ export default function AuthPage() {
       return;
     }
 
-    // ── Normal login path: user is set, not an OAuth callback → go home ──
     navigate("/", { replace: true });
-
   }, [isAuthLoading, user, isOAuthCallback, navigate, signOut]);
 
-  // ── Email sign-in ──────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const validation = loginSchema.safeParse({ email, password });
@@ -207,7 +162,6 @@ export default function AuthPage() {
     try {
       const { error } = await signIn(email, password);
       if (error) toast.error(error.message);
-      // navigate handled by the effect above reacting to user state change
     } catch {
       toast.error("Unexpected error");
     } finally {
@@ -219,14 +173,12 @@ export default function AuthPage() {
     setIsLoading(true);
     try {
       await signInWithDiscord("/auth", "login");
-      // browser redirects away — never reaches here
     } catch {
       toast.error("Discord login failed");
       setIsLoading(false);
     }
   };
 
-  // Show a full-screen loader ONLY while the OAuth callback is in flight
   if (isOAuthCallback && !isAuthLoading && user) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#030712] text-white gap-4">
@@ -257,21 +209,12 @@ export default function AuthPage() {
       `}</style>
 
       <div className="min-h-screen flex">
-        {/* ── Left banner ── */}
         <div className="hidden lg:flex lg:w-3/5 relative overflow-hidden">
-          <img
-            src={bannerSrc}
-            className="absolute inset-0 w-full h-full object-cover"
-            alt="Banner"
-          />
+          <img src={bannerSrc} className="absolute inset-0 w-full h-full object-cover" alt="Banner" />
           <div className="absolute inset-0 bg-gradient-to-r from-black/10 to-black/30" />
         </div>
 
-        {/* ── Right panel ── */}
-        <div
-          className="flex-1 flex flex-col lg:w-2/5"
-          style={{ overflow: "hidden" }}
-        >
+        <div className="flex-1 flex flex-col lg:w-2/5" style={{ overflow: "hidden" }}>
           <div className="flex items-center justify-between p-4">
             <a href={VACOMPANY_URL} target="_blank" rel="noreferrer">
               <img src={vacompanyLogo} className="h-10" alt="VA" />
@@ -279,11 +222,7 @@ export default function AuthPage() {
             <ThemeToggle />
           </div>
 
-          {/* Sliding stage */}
-          <div
-            className="flex-1 flex flex-col"
-            style={{ position: "relative", overflow: "hidden" }}
-          >
+          <div className="flex-1 flex flex-col" style={{ position: "relative", overflow: "hidden" }}>
             <div
               style={{
                 display: "flex",
@@ -293,87 +232,63 @@ export default function AuthPage() {
                 transition: "transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
             >
-              {/* ── Panel 1: Choose ── */}
-              <div
-                style={{ width: "50%", height: "100%" }}
-                className="flex items-center justify-center p-8"
-              >
+              {/* PANEL 1: SELECTION */}
+              <div style={{ width: "50%", height: "100%" }} className="flex items-center justify-center p-8">
                 <div className="w-full max-w-sm space-y-6 chooser-enter">
                   <div className="text-center space-y-1">
-                    <h1 className="text-3xl font-bold tracking-tight">
-                      Welcome to KEVA
-                    </h1>
-                    <p className="text-muted-foreground text-sm">
-                      Crew Center — choose how to continue
-                    </p>
+                    <h1 className="text-3xl font-bold tracking-tight">Welcome to KEVA</h1>
+                    <p className="text-muted-foreground text-sm">Crew Center — choose how to continue</p>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <div className="flex-1 h-px bg-border" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-widest">
-                      continue as
-                    </span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-widest">continue as</span>
                     <div className="flex-1 h-px bg-border" />
                   </div>
 
-                  {/* Sign In */}
                   <button
                     onClick={() => setSigninVisible(true)}
                     className="chooser-btn w-full rounded-xl border border-border bg-card px-5 py-4 flex items-center gap-4 text-left shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
                   >
                     <span
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-                      style={{
-                        background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
-                      }}
+                      style={{ background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)" }}
                     >
                       <LogIn className="h-5 w-5 text-white" />
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block font-semibold text-sm">Sign In</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">
-                        Access your pilot dashboard
-                      </span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">Access your pilot dashboard</span>
                     </span>
                     <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </button>
 
-                  {/* Sign Up */}
                   <Link
                     to="/apply"
                     className="chooser-btn w-full rounded-xl border border-border bg-card px-5 py-4 flex items-center gap-4 text-left shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0066CC]"
-                    style={{ display: "flex" }}
                   >
                     <span
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg"
-                      style={{
-                        background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)",
-                      }}
+                      style={{ background: "linear-gradient(135deg, #00256C 0%, #0066CC 100%)" }}
                     >
                       <UserPlus className="h-5 w-5 text-white" />
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block font-semibold text-sm">Sign Up</span>
-                      <span className="block text-xs text-muted-foreground mt-0.5">
-                        Apply to join the KEVA fleet
-                      </span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">Apply to join the KEVA fleet</span>
                     </span>
                     <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   </Link>
                 </div>
               </div>
 
-              {/* ── Panel 2: Sign In card ── */}
-              <div
-                style={{ width: "50%", height: "100%" }}
-                className="flex items-center justify-center p-8"
-              >
+              {/* PANEL 2: SIGN IN */}
+              <div style={{ width: "50%", height: "100%" }} className="flex items-center justify-center p-8">
                 <div
                   className="relative w-full max-w-sm"
                   onMouseEnter={() => setHovered(true)}
                   onMouseLeave={() => setHovered(false)}
                 >
-                  {/* Ambient glow */}
                   <div
                     style={{
                       position: "absolute",
@@ -410,12 +325,8 @@ export default function AuthPage() {
                           <ArrowRight className="h-4 w-4 rotate-180" />
                         </button>
                         <div>
-                          <CardTitle className="text-xl leading-tight">
-                            Sign in
-                          </CardTitle>
-                          <CardDescription className="text-xs mt-0.5">
-                            Access the Crew Center
-                          </CardDescription>
+                          <CardTitle className="text-xl leading-tight">Sign in</CardTitle>
+                          <CardDescription className="text-xs mt-0.5">Access the Crew Center</CardDescription>
                         </div>
                       </div>
                     </CardHeader>
@@ -440,20 +351,24 @@ export default function AuthPage() {
                           {isLoading && <Loader2 className="animate-spin mr-2" />}
                           Sign In
                         </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={handleDiscordSignIn}
-                          disabled={isLoading}
-                          className="w-full"
-                        >
-                          <DiscordIcon className="mr-2" />
-                          Discord*
-                        </Button>
-                        <p className="text-center text-sm text-muted-foreground pt-1">
-                          *Only For Pilots Registered by Discord by Staff.
-                        </p>
-                        <p className="text-center text-sm text-muted-foreground pt-1">
+                        
+                        <div className="space-y-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleDiscordSignIn}
+                            disabled={isLoading}
+                            className="w-full"
+                          >
+                            <DiscordIcon className="mr-2" />
+                            Discord
+                          </Button>
+                          <p className="text-center text-[10px] text-muted-foreground/60 italic leading-tight px-2">
+                            * Only for pilots registered via Discord by staff members.
+                          </p>
+                        </div>
+
+                        <p className="text-center text-sm text-muted-foreground pt-2">
                           Not a Pilot for KEVA yet?{" "}
                           <Link
                             to="/apply"
