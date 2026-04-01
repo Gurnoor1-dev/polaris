@@ -448,8 +448,11 @@ export default function AuthPage() {
                           className="w-full"
                         >
                           <DiscordIcon className="mr-2" />
-                          Discord
+                          Discord*
                         </Button>
+                        <p className="text-center text-sm text-muted-foreground pt-1">
+                          *Only For Pilots Registered by Discord by Staff.
+                        </p>
                         <p className="text-center text-sm text-muted-foreground pt-1">
                           Not a Pilot for KEVA yet?{" "}
                           <Link
