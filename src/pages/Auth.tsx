@@ -37,7 +37,6 @@ export default function AuthPage() {
   const [signinVisible, setSigninVisible] = useState(false);
 
   // Ref-only guard — prevents the async OAuth handler from running twice.
-  // We use a ref (not state) so setting it never causes a re-render loop.
   const oauthRanRef = useRef(false);
 
   const navigate = useNavigate();
@@ -83,6 +82,8 @@ export default function AuthPage() {
 
       const handleOAuth = async () => {
         try {
+          console.log("OAuth handler running for user:", user.id);
+
           const discordHandle =
             user.user_metadata?.preferred_username ||
             user.user_metadata?.name ||
@@ -91,6 +92,8 @@ export default function AuthPage() {
 
           const displayName = user.user_metadata?.full_name || discordHandle;
           const normalized = normalizeDiscordUsername(discordHandle);
+
+          console.log("Discord handle:", discordHandle, "Normalized:", normalized);
 
           // 1. Look for an approved pilot row
           const { data: existingPilot, error: pilotErr } = await supabase
@@ -102,7 +105,10 @@ export default function AuthPage() {
           if (pilotErr) throw pilotErr;
 
           if (existingPilot) {
+            console.log("Found existing pilot:", existingPilot);
+            
             if (existingPilot.approval_status !== "approved") {
+              console.log("Pilot not approved, signing out");
               toast.info(PENDING_APPROVAL_MESSAGE);
               await signOut();
               navigate("/auth", { replace: true });
@@ -111,6 +117,7 @@ export default function AuthPage() {
 
             // Link user_id on first OAuth login after approval
             if (!existingPilot.user_id || existingPilot.user_id !== user.id) {
+              console.log("Linking user_id to pilot");
               await supabase
                 .from("pilots")
                 .update({ user_id: user.id })
@@ -122,32 +129,50 @@ export default function AuthPage() {
             return;
           }
 
+          console.log("No existing pilot found");
+
           // 2. Check for existing pending application
-          const { data: existingApp } = await supabase
+          const { data: existingApp, error: appCheckErr } = await supabase
             .from("pilot_applications")
-            .select("status")
+            .select("status, id")
             .eq("discord_username", normalized)
             .maybeSingle();
 
+          if (appCheckErr) {
+            console.error("Error checking existing application:", appCheckErr);
+          }
+
           if (existingApp) {
+            console.log("Found existing application with status:", existingApp.status);
             toast.info(PENDING_APPROVAL_MESSAGE);
             await signOut();
             navigate("/auth", { replace: true });
             return;
           }
 
+          console.log("Creating new application for:", normalized);
+
           // 3. Brand new — create application
-          await supabase.from("pilot_applications").upsert(
-            {
-              user_id: user.id,
-              email: user.email ?? "",
-              full_name: displayName,
-              discord_username: normalized,
-              discord_user_id: user.user_metadata?.provider_id ?? null,
-              status: "pending",
-            },
-            { onConflict: "user_id" }
-          );
+          const { error: createAppErr, data: newAppData } = await supabase
+            .from("pilot_applications")
+            .insert([
+              {
+                user_id: user.id,
+                email: user.email ?? "",
+                full_name: displayName,
+                discord_username: normalized,
+                discord_user_id: user.user_metadata?.provider_id ?? null,
+                status: "pending",
+              }
+            ])
+            .select();
+
+          if (createAppErr) {
+            console.error("Error creating application:", createAppErr);
+            throw createAppErr;
+          }
+
+          console.log("Application created successfully:", newAppData);
 
           toast.info(PENDING_APPROVAL_MESSAGE);
           await signOut();
@@ -202,9 +227,6 @@ export default function AuthPage() {
   };
 
   // Show a full-screen loader ONLY while the OAuth callback is in flight
-  // and we still have a user (i.e. Supabase gave us a session).
-  // Once signOut() clears user we'll render the normal UI briefly before
-  // navigate fires — that's fine, it's instant.
   if (isOAuthCallback && !isAuthLoading && user) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#030712] text-white gap-4">
