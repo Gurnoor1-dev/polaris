@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Clock, FileText, Award, Hash, Flame, Plus } from "lucide-react";
+import { Clock, FileText, Award, Hash, Flame, Plus, Trophy, Plane } from "lucide-react";
 import { Link } from "react-router-dom";
-import { isSameDay } from "date-fns";
+import { isSameDay, format, subDays } from "date-fns";
 import aeroflotBanner from "@/assets/aeroflot-banner1.png";
 import { TodayROTW } from "@/components/dashboard/TodayROTW";
 import { UpcomingEvents } from "@/components/dashboard/UpcomingEvents";
@@ -55,6 +55,25 @@ export default function Dashboard() {
     enabled: !!pilot?.id,
   });
 
+  // Approved PIREPs from the last 7 days — used for the calendar strip.
+  // Separate from recentPireps so the strip only lights up on approved days.
+  const { data: weekPireps } = useQuery({
+    queryKey: ["week-approved-pireps", pilot?.id],
+    queryFn: async () => {
+      if (!pilot?.id) return [];
+      const sevenDaysAgo = format(subDays(new Date(), 6), "yyyy-MM-dd");
+      const { data } = await supabase
+        .from("pireps")
+        .select("flight_date")
+        .eq("pilot_id", pilot.id)
+        .eq("status", "approved")
+        .gte("flight_date", sevenDaysAgo);
+      return data || [];
+    },
+    enabled: !!pilot?.id,
+  });
+
+  // Read the pre-calculated streak cache (refreshed by DB trigger on approval)
   const { data: streak } = useQuery({
     queryKey: ["pilot-streak", pilot?.id],
     queryFn: async () => {
@@ -94,27 +113,36 @@ export default function Dashboard() {
     );
   };
 
-  const getDayName = (dayIndex: number) => {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return days[dayIndex];
-  };
-
+  // Build 7-day strip. Approved dates come from weekPireps so pending/denied
+  // PIREPs never light up a square.
   const getWeekDays = () => {
     const today = new Date();
-    const days = [];
-    const pirepDates = recentPireps?.map((p) => new Date(p.flight_date)) || [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      days.push({
-        name: getDayName(date.getDay()),
+    const approvedDates = (weekPireps || []).map((p) => new Date(p.flight_date));
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(today, 6 - i);
+      return {
+        name: format(date, "EEE"),
         date: date.getDate(),
-        isToday: i === 0,
-        hasPirep: pirepDates.some((d) => isSameDay(d, date)),
-      });
-    }
-    return days;
+        isToday: i === 6,
+        hasPirep: approvedDates.some((d) => isSameDay(d, date)),
+      };
+    });
   };
+
+  const weekDays = getWeekDays();
+  const currentStreak = streak?.current_streak ?? 0;
+  const longestStreak = streak?.longest_streak ?? 0;
+  const todayHasPirep = weekDays[6]?.hasPirep ?? false;
+
+  // Flame colour scales with streak length
+  const flameColor =
+    currentStreak >= 7
+      ? "text-orange-500"
+      : currentStreak >= 3
+      ? "text-amber-500"
+      : currentStreak >= 1
+      ? "text-yellow-500"
+      : "text-muted-foreground";
 
   if (!pilot) {
     return (
@@ -131,7 +159,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Hero Banner */}
+
+      {/* ── Hero Banner ──────────────────────────────────────────────────────── */}
       <div className="relative h-48 rounded-xl overflow-hidden">
         <img
           src={heroImageUrl || aeroflotBanner}
@@ -145,151 +174,164 @@ export default function Dashboard() {
               Welcome back, {pilot.full_name.split(" ")[0]}!
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Ready for your next flight?
+              {todayHasPirep
+                ? "Great flying today — streak is safe! ✈️"
+                : currentStreak > 0
+                ? `${currentStreak}-day streak active — fly today to keep it going!`
+                : "Ready for your next flight?"}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Announcements */}
       <Announcements />
-
-      {/* NOTAMs Card */}
       <NotamCard />
-
-      {/* Daily Featured Routes */}
       <DailyFeaturedRoutes />
-
-      {/* Today's ROTW */}
       <TodayROTW />
 
-      {/* Stats Cards Row */}
-<div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-  {/* Callsign */}
-  <Card>
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Callsign
-          </p>
-          <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
-        </div>
-        <Hash className="h-5 w-5 text-muted-foreground" />
-      </div>
-    </CardContent>
-  </Card>
+      {/* ── Stats Cards ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Callsign</p>
+                <p className="text-2xl font-bold mt-1">{pilot.pid}</p>
+              </div>
+              <Hash className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
 
-  {/* Rank */}
-  <Card>
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Rank
-          </p>
-          <p className="text-2xl font-bold mt-1 capitalize">
-            {getRankLabel(pilot.current_rank)}
-          </p>
-        </div>
-        <Award className="h-5 w-5 text-muted-foreground" />
-      </div>
-    </CardContent>
-  </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Rank</p>
+                <p className="text-2xl font-bold mt-1 capitalize">
+                  {getRankLabel(pilot.current_rank)}
+                </p>
+              </div>
+              <Award className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
 
-  {/* PIREPs */}
-  <Card>
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Total PIREPs
-          </p>
-          <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
-        </div>
-        <FileText className="h-5 w-5 text-muted-foreground" />
-      </div>
-    </CardContent>
-  </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Total PIREPs</p>
+                <p className="text-2xl font-bold mt-1">{pilot.total_pireps}</p>
+              </div>
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
 
-  {/* Flight Time */}
-  <Card>
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Flight Time
-          </p>
-          <p className="text-2xl font-bold mt-1">
-            {formatFlightTime(pilot.total_hours)}
-          </p>
-        </div>
-        <Clock className="h-5 w-5 text-muted-foreground" />
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Flight Time</p>
+                <p className="text-2xl font-bold mt-1">{formatFlightTime(pilot.total_hours)}</p>
+              </div>
+              <Clock className="h-5 w-5 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </CardContent>
-  </Card>
-</div>
-      
-      {/* Two Column Layout for Streak and Events */}
+
+      {/* ── Streak + Events Row ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
         {/* Streak Card */}
         <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Streak</CardTitle>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Flying Streak</CardTitle>
+              {/* Nudge button — only shown when streak is active but today is empty */}
+              {!todayHasPirep && currentStreak > 0 && (
+                <Link to="/file-pirep">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+                  >
+                    <Plane className="h-3 w-3 mr-1" />
+                    Fly today
+                  </Button>
+                </Link>
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="p-4 bg-muted rounded-lg flex-1">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-lg">Daily Flying Streak</h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      File a PIREP to keep your streak going.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Flame className="h-10 w-10 text-primary" />
-                    <div className="text-right">
-                      <p className="text-3xl font-bold">
-                        {streak?.current_streak || 0} Days
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Current Streak
-                      </p>
-                    </div>
-                  </div>
+
+          <CardContent className="space-y-4">
+
+            {/* Current + Longest counters */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                <Flame className={`h-8 w-8 shrink-0 ${flameColor}`} />
+                <div>
+                  <p className="text-2xl font-bold leading-none">{currentStreak}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {currentStreak === 1 ? "day" : "days"} current
+                  </p>
                 </div>
               </div>
 
-              <div className="flex gap-1">
-                {getWeekDays().map((day, index) => (
-                  <div key={index} className="text-center">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      {day.name}
-                    </p>
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
+                <Trophy className="h-8 w-8 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-2xl font-bold leading-none">{longestStreak}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {longestStreak === 1 ? "day" : "days"} best
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 7-day calendar strip */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Last 7 days (approved PIREPs)</p>
+              <div className="flex gap-1.5">
+                {weekDays.map((day, index) => (
+                  <div key={index} className="flex-1 text-center">
+                    <p className="text-[10px] text-muted-foreground mb-1">{day.name}</p>
                     <div
-                      className={`w-8 h-8 rounded flex items-center justify-center text-sm font-medium ${
-                        day.hasPirep
+                      className={`
+                        h-9 rounded flex items-center justify-center text-xs font-semibold transition-colors
+                        ${day.hasPirep
                           ? "bg-primary text-primary-foreground"
                           : day.isToday
-                          ? "bg-accent text-accent-foreground"
+                          ? "bg-accent text-accent-foreground ring-1 ring-primary/40"
                           : "bg-muted text-muted-foreground"
-                      }`}
+                        }
+                      `}
                     >
-                      {day.date}
+                      {day.hasPirep ? "✓" : day.date}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Contextual footer message */}
+            <p className="text-xs text-muted-foreground">
+              {todayHasPirep
+                ? "You've already flown today — streak secured!"
+                : currentStreak > 0
+                ? "File a PIREP before midnight to keep your streak alive."
+                : "Start a new streak by filing a PIREP today."}
+            </p>
+
           </CardContent>
         </Card>
 
-        {/* Upcoming Events */}
         <UpcomingEvents />
       </div>
 
-      {/* New PIREP Button */}
+      {/* ── New PIREP CTA ────────────────────────────────────────────────────── */}
       <Link to="/file-pirep">
         <Button
           variant="outline"
@@ -300,7 +342,7 @@ export default function Dashboard() {
         </Button>
       </Link>
 
-      {/* Latest PIREPs */}
+      {/* ── Latest 5 PIREPs ──────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-lg font-semibold mb-4">Latest 5 PIREPs</h2>
         <Card>
@@ -309,27 +351,16 @@ export default function Dashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted text-left">
-                    <th className="px-4 py-3 font-medium text-muted-foreground">
-                      Flight Number
-                    </th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">
-                      Departure
-                    </th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">
-                      Arrival
-                    </th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">
-                      Status
-                    </th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Flight Number</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Departure</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Arrival</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pirepsLoading ? (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-8 text-center text-muted-foreground"
-                      >
+                      <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                         Loading...
                       </td>
                     </tr>
@@ -339,19 +370,13 @@ export default function Dashboard() {
                         <td className="px-4 py-3">{pirep.flight_number}</td>
                         <td className="px-4 py-3">{pirep.dep_icao}</td>
                         <td className="px-4 py-3">{pirep.arr_icao}</td>
-                        <td className="px-4 py-3">
-                          {getStatusBadge(pirep.status)}
-                        </td>
+                        <td className="px-4 py-3">{getStatusBadge(pirep.status)}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="px-4 py-8 text-center text-muted-foreground"
-                      >
-                        No PIREPs filed yet. File your first PIREP to get
-                        started!
+                      <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                        No PIREPs filed yet. File your first PIREP to get started!
                       </td>
                     </tr>
                   )}
@@ -361,6 +386,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
     </div>
   );
 }
