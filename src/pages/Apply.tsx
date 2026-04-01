@@ -11,7 +11,7 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { DiscordIcon } from "@/components/icons/DiscordIcon";
-import kevaLogo from "@/assets/aeroflot-logo.png"; // Kept your existing asset path
+import kevaLogo from "@/assets/aeroflot-logo.png";
 import { PolarisFooter } from "@/components/PolarisFooter";
 import { getDiscordProfile, normalizeDiscordUsername } from "@/lib/discordIdentity";
 
@@ -114,43 +114,85 @@ export default function ApplyPage() {
       const normalizedDiscordUsername = normalizeDiscordUsername(discordUsername || oauthDiscordUsername || "");
 
       if (!isExistingDiscordUser) {
+        console.log("Creating new user with email/password...");
         const { error: signUpError, userId: signedUpUserId } = await signUp(email, password);
         if (signUpError) {
+          console.error("Sign-up error:", signUpError);
           toast.error(signUpError.message);
           setIsLoading(false);
           return;
         }
+        if (!signedUpUserId) {
+          console.error("No userId returned from signUp");
+          toast.error("Sign-up failed: No user ID returned");
+          setIsLoading(false);
+          return;
+        }
         applicantUserId = signedUpUserId;
+        console.log("User created with ID:", applicantUserId);
       } else {
         const metadataEmail = typeof user?.user_metadata?.email === "string" ? user.user_metadata.email : null;
         applicantEmail = user?.email || metadataEmail || `discord-${user?.id}@users.noreply.local`;
+        console.log("Using existing Discord user:", applicantUserId);
       }
 
-      // SUBMISSION: Mapping "KEVA" frontend state to "Latour/AFLV" database columns
-      const { error: appError } = await supabase.from("pilot_applications").upsert({
+      console.log("Creating application for user:", applicantUserId);
+
+      // SUBMISSION: Mapping "KEVA" frontend state to database columns
+      // Frontend Variable → Database Column mapping verified
+      const applicationData = {
+        // User / Auth
         user_id: applicantUserId,
         email: applicantEmail,
+        
+        // Personal Info
         full_name: fullName,
-        experience_level: ifGrade,
-        preferred_simulator: isIfatc,
-        reason_for_joining: whyJoinKeva, // Maps to your internal logic
+        
+        // Discord
         discord_username: normalizedDiscordUsername,
         discord_user_id: discordUserId,
-        if_grade: ifGrade,
-        is_ifatc: isIfatc,
-        ifc_trust_level: ifcTrustLevel,
-        age_range: ageRange,
+        
+        // Experience & Qualifications
+        if_grade: ifGrade,                        // Grade 2, 3, 4, 5
+        is_ifatc: isIfatc,                        // Yes/No
+        ifc_trust_level: ifcTrustLevel,          // TL1, TL2, TL3, TL4
+        age_range: ageRange,                      // 13-16, 17-21, etc
+        
+        // IFC Profile
         ifc_profile_url: ifcProfileUrl.trim().replace(/^@+/, "") || null,
+        
+        // VA/VO Membership
         other_va_membership: otherVaMembership,
-        hear_about_aflv: hearAboutKeva, // Keep internal DB column name
-      }, { onConflict: "user_id" });
+        
+        // Application Essays / Motivation
+        reason_for_joining: whyJoinKeva,         // Why join KEVA?
+        hear_about_aflv: hearAboutKeva,          // ✓ MAPPED: Where heard about KEVA
+        
+        // Legacy compatibility (duplicates above for backward compatibility)
+        experience_level: ifGrade,
+        preferred_simulator: isIfatc,
+        
+        // Status
+        status: "pending",
+      };
 
-      if (appError) throw appError;
+      console.log("Application data:", applicationData);
 
+      const { error: appError, data: appData } = await supabase
+        .from("pilot_applications")
+        .insert([applicationData])
+        .select();
+
+      if (appError) {
+        console.error("Application insert error:", appError);
+        throw appError;
+      }
+
+      console.log("Application created successfully:", appData);
       toast.success("Application submitted successfully!");
       navigate("/auth", { replace: true });
     } catch (err) {
-      console.error(err);
+      console.error("Submit error:", err);
       toast.error("Failed to submit application. Please try again.");
     } finally {
       setIsLoading(false);
