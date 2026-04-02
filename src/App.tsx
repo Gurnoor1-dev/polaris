@@ -14,6 +14,8 @@ import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 
 const AuthPage = lazy(() => import("@/pages/Auth"));
 const ApplyPage = lazy(() => import("@/pages/Apply"));
+const MigrateToEmail = lazy(() => import("@/pages/MigrateToEmail"));
+const UpdatePassword = lazy(() => import("@/pages/UpdatePassword"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const FilePirep = lazy(() => import("@/pages/FilePirep"));
 const PirepHistory = lazy(() => import("@/pages/PirepHistory"));
@@ -97,6 +99,8 @@ const App = () => (
                     <Route path="/auth" element={<AuthPage />} />
                     <Route path="/apply" element={<ApplyPage />} />
                     <Route path="/academy/exam/:examId" element={<AcademyExam />} />
+                    <Route path="/migrate/request" element={<MigrateToEmail />} />
+                    <Route parh="/migrate/update-password" element={<UpdatePassword />} />
 
                     <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
 
