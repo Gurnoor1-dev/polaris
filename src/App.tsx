@@ -100,7 +100,7 @@ const App = () => (
                     <Route path="/apply" element={<ApplyPage />} />
                     <Route path="/academy/exam/:examId" element={<AcademyExam />} />
                     <Route path="/migrate/request" element={<MigrateToEmail />} />
-                    <Route parh="/migrate/update-password" element={<UpdatePassword />} />
+                    <Route path="/migrate/update-password" element={<UpdatePassword />} />
 
                     <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
 
