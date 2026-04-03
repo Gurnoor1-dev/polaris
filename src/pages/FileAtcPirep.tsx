@@ -238,7 +238,7 @@ export default function PublicAtcPirep() {
                   </SelectTrigger>
                   <SelectContent>
                     {/* Always show a standard 1x option */}
-                    <SelectItem value="1">Standard (1.0×)</SelectItem>
+                    <SelectItem value="1">General Controlling (1.0×)</SelectItem>
                     {atcMultipliers?.map((m) => (
                       <SelectItem key={m.id} value={String(m.value)}>
                         {m.name} ({Number(m.value).toFixed(1)}×)
