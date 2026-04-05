@@ -16,10 +16,12 @@ import { Announcements } from "@/components/dashboard/Announcements";
 import { DailyFeaturedRoutes } from "@/components/dashboard/DailyFeaturedRoutes";
 
 export default function Dashboard() {
+  const { isReady } = useAuth();
   const { pilot } = useAuth();
 
   const { data: settings } = useQuery({
     queryKey: ["site-settings"],
+    enabled: isReady,
     queryFn: async () => {
       const { data } = await supabase.from("site_settings").select("*");
       return data || [];
