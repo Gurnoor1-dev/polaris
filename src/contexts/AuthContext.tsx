@@ -8,6 +8,7 @@ import {
 } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { QueryClient } from "@tanstack/react-query";
 import { PENDING_APPROVAL_MESSAGE } from "@/lib/authMessages";
 
 interface Pilot {
@@ -31,6 +32,12 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Shared queryClient ref — passed in from App so we can invalidate after login
+let _queryClient: QueryClient | null = null;
+export function setAuthQueryClient(qc: QueryClient) {
+  _queryClient = qc;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -133,6 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isMounted.current) {
           initialBootDone.current = true;
           setIsLoading(false);
+          // ✅ After boot completes, invalidate all queries so pages refetch
+          // with a valid session. This fixes the AbortError on login.
+          _queryClient?.invalidateQueries();
         }
       }
     };
@@ -158,6 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setPilot(null);
         setIsAdmin(false);
+        // Clear all cached query data on logout
+        _queryClient?.clear();
         return;
       }
 
@@ -165,6 +177,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(currentSession);
         setUser(currentSession.user);
         await fetchPilotData(currentSession.user.id, false);
+        // ✅ Invalidate after SIGNED_IN so all page queries refetch fresh
+        _queryClient?.invalidateQueries();
         return;
       }
     });
@@ -203,6 +217,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setSession(data.session);
       await fetchPilotData(data.user.id, false);
+      // ✅ Invalidate after manual sign-in too
+      _queryClient?.invalidateQueries();
 
       return { error: null };
     } catch (err: any) {
@@ -234,9 +250,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setPilot(null);
     setIsAdmin(false);
+    _queryClient?.clear();
   };
 
-  // ✅ isReady is true only when both loading phases are complete
   const isReady = !isLoading && !isPilotLoading;
 
   return (
