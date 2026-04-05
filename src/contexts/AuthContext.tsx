@@ -22,6 +22,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthLoading: boolean;
   isPilotLoading: boolean;
+  isReady: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string) => Promise<{ error: any; userId: string | null }>;
   signInWithDiscord: (path?: string, mode?: "login" | "register") => Promise<{ error: any }>;
@@ -42,9 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialBootDone = useRef(false);
   const isMounted = useRef(true);
 
-  // ── Core: check approval status then fetch pilot data ────────────────────
-  // Returns false if the user was signed out due to non-approved status,
-  // true if everything is fine.
   const fetchPilotData = async (
     userId: string,
     isInitial = false
@@ -71,16 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const pilotData = pilotRes.data ?? null;
 
-      // ── Approval gate ────────────────────────────────────────────────────
-      // If a pilot row exists but is not approved, force sign-out.
-      // This covers: page refresh, tab restore, token refresh — every path.
-      // We skip this check if there's no pilot row at all (e.g. OAuth new user
-      // who is mid-application — Auth.tsx handles that case separately).
       if (pilotData && pilotData.approval_status !== "approved") {
         console.warn(
           `User ${userId} has approval_status="${pilotData.approval_status}" — signing out.`
         );
-        // Sign out without triggering the spinner again
         await supabase.auth.signOut();
         if (isMounted.current) {
           setSession(null);
@@ -129,7 +121,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSession?.user && isMounted.current) {
           setSession(initialSession);
           setUser(initialSession.user);
-          // isInitial=true — checks approval, shows spinner
           await fetchPilotData(initialSession.user.id, true);
         } else {
           if (isMounted.current) setIsPilotLoading(false);
@@ -154,11 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!isMounted.current) return;
       if (!initialBootDone.current) return;
 
-      // Tab focus / token refresh — silently re-check approval + refresh pilot
       if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
         setSession(currentSession);
         if (currentSession?.user) {
-          // isInitial=false — silent, no spinner, but still checks approval
           await fetchPilotData(currentSession.user.id, false);
         }
         return;
@@ -188,7 +177,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── signIn — email/password ───────────────────────────────────────────────
   const signIn = async (email: string, password: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -199,8 +187,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) return { error };
       if (!data.user) return { error: new Error("No user returned") };
 
-      // Check approval before proceeding (fetchPilotData will also do this,
-      // but we want to return a clean error message to the sign-in form)
       const { data: p, error: pError } = await supabase
         .from("pilots")
         .select("approval_status")
@@ -216,7 +202,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser(data.user);
       setSession(data.session);
-      // Silent fetch — user is already approved, no need for spinner
       await fetchPilotData(data.user.id, false);
 
       return { error: null };
@@ -251,6 +236,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(false);
   };
 
+  // ✅ isReady is true only when both loading phases are complete
+  const isReady = !isLoading && !isPilotLoading;
+
   return (
     <AuthContext.Provider
       value={{
@@ -261,6 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthLoading: isLoading,
         isPilotLoading,
+        isReady,
         signIn,
         signUp,
         signInWithDiscord,
