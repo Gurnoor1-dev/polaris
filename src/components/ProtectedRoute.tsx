@@ -10,12 +10,10 @@ export function ProtectedRoute({
   children,
   requireAdmin = false,
 }: ProtectedRouteProps) {
-  const { user, pilot, isAdmin, isLoading, isPilotLoading } = useAuth();
+  const { user, isAdmin, isLoading, isPilotLoading, isReady } = useAuth();
   const location = useLocation();
 
-  // 1. Initial auth check in progress (page load / hard refresh)
-  //    isLoading is only true once — during the very first getSession() call.
-  //    It never goes back to true on tab focus or token refresh.
+  // 1. Auth session check in progress
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-foreground">
@@ -27,14 +25,12 @@ export function ProtectedRoute({
     );
   }
 
-  // 2. Not logged in → go to auth page
+  // 2. Not logged in → redirect to auth
   if (!user) {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  // 3. Pilot data fetch in progress — only on the very first load.
-  //    isPilotLoading is set to false after the first fetch completes
-  //    and is NEVER set back to true on background refetches.
+  // 3. Pilot profile fetch in progress
   if (isPilotLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-background text-foreground">
@@ -51,6 +47,9 @@ export function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
-  // 5. All clear — render the page
+  // 5. ✅ Only mount children (and their useQuery calls) once fully ready
+  //    This prevents Supabase queries firing before session is established
+  if (!isReady) return null;
+
   return <>{children}</>;
 }
