@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ const FREQ_MAP = [
 ];
 
 export default function PublicAtcPirep() {
+  const { isReady } = useAuth();
   const [loading, setLoading] = useState(false);
   const [icao, setIcao] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -32,9 +34,10 @@ export default function PublicAtcPirep() {
   const [isSup, setIsSup] = useState(false);
   const [selectedMultiplier, setSelectedMultiplier] = useState<string>("1");
 
-  // Fetch active ATC multipliers from DB
+  // ✅ Only fetch once auth is fully ready — prevents unauthenticated RLS rejections
   const { data: atcMultipliers } = useQuery({
     queryKey: ["atc-multiplier-configs-public"],
+    enabled: isReady,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("atc_multiplier_configs")
@@ -87,7 +90,6 @@ export default function PublicAtcPirep() {
     });
   };
 
-  // Preview: calculate duration and apply multiplier for live display
   const calcDuration = () => {
     if (!openTime || !closeTime) return null;
     try {
@@ -134,7 +136,6 @@ export default function PublicAtcPirep() {
         remarks,
         is_supervisor_override: isSup,
         status: "pending",
-        // Save the selected multiplier value — this is what admin uses to compute hours
         multiplier: multiplierValue,
       });
 
@@ -237,7 +238,6 @@ export default function PublicAtcPirep() {
                     <SelectValue placeholder="Select multiplier" />
                   </SelectTrigger>
                   <SelectContent>
-                    {/* Always show a standard 1x option */}
                     <SelectItem value="1">General Controlling (1.0×)</SelectItem>
                     {atcMultipliers?.map((m) => (
                       <SelectItem key={m.id} value={String(m.value)}>
@@ -248,7 +248,6 @@ export default function PublicAtcPirep() {
                 </Select>
               </div>
 
-              {/* Live duration preview */}
               {totalHours !== null && (
                 <div className="rounded-xl border bg-primary/5 border-primary/20 px-4 py-3 flex flex-col items-center justify-center">
                   <p className="text-[9px] font-black uppercase opacity-60 tracking-widest mb-0.5">
