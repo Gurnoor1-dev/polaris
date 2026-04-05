@@ -5,13 +5,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, setAuthQueryClient } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 
 /* Pages */
-
 const AuthPage = lazy(() => import("@/pages/Auth"));
 const ApplyPage = lazy(() => import("@/pages/Apply"));
 const MigrateToEmail = lazy(() => import("@/pages/MigrateToEmail"));
@@ -20,7 +19,7 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const FilePirep = lazy(() => import("@/pages/FilePirep"));
 const PirepHistory = lazy(() => import("@/pages/PirepHistory"));
 const RoutesPage = lazy(() => import("@/pages/Routes"));
-const RouteMap = lazy(() => import("@/pages/RouteMap")); 
+const RouteMap = lazy(() => import("@/pages/RouteMap"));
 const RoutesOfTheWeek = lazy(() => import("@/pages/RoutesOfTheWeek"));
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const Events = lazy(() => import("@/pages/Events"));
@@ -34,7 +33,6 @@ const ActivityPage = lazy(() => import("@/pages/Activity"));
 const ProfileSettings = lazy(() => import("@/pages/ProfileSettings"));
 
 /* Admin Pages */
-
 const AdminPireps = lazy(() => import("@/pages/admin/AdminPireps"));
 const AdminRoutes = lazy(() => import("@/pages/admin/AdminRoutes"));
 const AdminROTW = lazy(() => import("@/pages/admin/AdminROTW"));
@@ -52,8 +50,7 @@ const AdminSidebarLinks = lazy(() => import("@/pages/admin/AdminSidebarLinks"));
 const AdminAcademy = lazy(() => import("@/pages/admin/AdminAcademy"));
 const AdminActivity = lazy(() => import("@/pages/admin/AdminActivity"));
 
-/* NEW ATC SYSTEM */
-
+/* ATC */
 const FileAtcPirep = lazy(() => import("@/pages/FileAtcPirep"));
 const AdminAtcPireps = lazy(() => import("@/pages/admin/AdminAtcPireps"));
 const AtcHistory = lazy(() => import("@/pages/AtcHistory"));
@@ -61,7 +58,6 @@ const AtcHistory = lazy(() => import("@/pages/AtcHistory"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 /* Query Client */
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -76,6 +72,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// ✅ Give AuthContext access to queryClient so it can invalidate after login
+setAuthQueryClient(queryClient);
 
 const RouteScopedErrorBoundary = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
@@ -105,15 +104,10 @@ const App = () => (
                     <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
 
                       <Route index element={<Dashboard />} />
-
                       <Route path="file-pirep" element={<FilePirep />} />
                       <Route path="atc-history" element={<AtcHistory />} />
                       <Route path="pirep-history" element={<PirepHistory />} />
-
-                      {/* NEW ATC PIREP PAGE */}
-
                       <Route path="file-atc-pirep" element={<FileAtcPirep />} />
-
                       <Route path="routes" element={<RoutesPage />} />
                       <Route path="/route-map" element={<RouteMap />} />
                       <Route path="rotw" element={<RoutesOfTheWeek />} />
@@ -128,10 +122,8 @@ const App = () => (
                       <Route path="profile" element={<ProfileSettings />} />
 
                       {/* ADMIN */}
-
                       <Route path="admin/pireps" element={<AdminPireps />} />
                       <Route path="admin/atc-pireps" element={<AdminAtcPireps />} />
-
                       <Route path="admin/routes" element={<AdminRoutes />} />
                       <Route path="admin/rotw" element={<AdminROTW />} />
                       <Route path="admin/events" element={<AdminEvents />} />
