@@ -101,6 +101,7 @@ const App = () => (
                     <Route path="/academy/exam/:examId" element={<AcademyExam />} />
                     <Route path="/migrate/request" element={<MigrateToEmail />} />
                     <Route path="/migrate/update-password" element={<UpdatePassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
 
                     <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
 
@@ -120,8 +121,7 @@ const App = () => (
                       <Route path="academy" element={<Academy />} />
                       <Route path="academy/course/:courseId" element={<AcademyCourse />} />
                       <Route path="activity" element={<ActivityPage />} />
-                      <Route path="profile" element={<ProfileSettings />} />
-                      <Route path="/reset-password" element={<ResetPassword />} />
+                      <Route path="profile" element={<ProfileSettings />} />                      
 
                       {/* ADMIN */}
                       <Route path="admin/pireps" element={<AdminPireps />} />
