@@ -33,17 +33,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Shared queryClient ref — passed in from App so we can invalidate after login
 let _queryClient: QueryClient | null = null;
 export function setAuthQueryClient(qc: QueryClient) {
   _queryClient = qc;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Start with isLoading=true so ProtectedRoute never sees a false-positive
+  // "not authenticated" state before the session check completes.
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [pilot, setPilot] = useState<Pilot | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Both loading flags start true — they only go false after the initial boot
   const [isLoading, setIsLoading] = useState(true);
   const [isPilotLoading, setIsPilotLoading] = useState(true);
 
@@ -107,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     isMounted.current = true;
 
+    // Safety valve — if auth takes >8 s, unblock the UI rather than hanging
     const forceUnblock = setTimeout(() => {
       if (isMounted.current && !initialBootDone.current) {
         console.warn("Auth init timed out — unblocking UI");
@@ -114,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsLoading(false);
         setIsPilotLoading(false);
       }
-    }, 5000);
+    }, 8000);
 
     const initializeAuth = async () => {
       try {
@@ -128,8 +132,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (initialSession?.user && isMounted.current) {
           setSession(initialSession);
           setUser(initialSession.user);
+          // fetchPilotData handles setIsPilotLoading(false) in its finally
           await fetchPilotData(initialSession.user.id, true);
         } else {
+          // No session — pilot loading is done immediately
           if (isMounted.current) setIsPilotLoading(false);
         }
       } catch (err) {
@@ -139,9 +145,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearTimeout(forceUnblock);
         if (isMounted.current) {
           initialBootDone.current = true;
+          // isLoading = false signals ProtectedRoute that the session check
+          // is complete and it's safe to look at `user`.
           setIsLoading(false);
-          // ✅ After boot completes, invalidate all queries so pages refetch
-          // with a valid session. This fixes the AbortError on login.
           _queryClient?.invalidateQueries();
         }
       }
@@ -153,6 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       if (!isMounted.current) return;
+      // Ignore events that fire before our initial boot is done — we handle
+      // the initial state in initializeAuth above.
       if (!initialBootDone.current) return;
 
       if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
@@ -168,7 +176,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setPilot(null);
         setIsAdmin(false);
-        // Clear all cached query data on logout
         _queryClient?.clear();
         return;
       }
@@ -177,7 +184,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(currentSession);
         setUser(currentSession.user);
         await fetchPilotData(currentSession.user.id, false);
-        // ✅ Invalidate after SIGNED_IN so all page queries refetch fresh
         _queryClient?.invalidateQueries();
         return;
       }
@@ -217,7 +223,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setSession(data.session);
       await fetchPilotData(data.user.id, false);
-      // ✅ Invalidate after manual sign-in too
       _queryClient?.invalidateQueries();
 
       return { error: null };
@@ -253,6 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     _queryClient?.clear();
   };
 
+  // isReady = true only when BOTH the session check AND the pilot fetch are done
   const isReady = !isLoading && !isPilotLoading;
 
   return (
