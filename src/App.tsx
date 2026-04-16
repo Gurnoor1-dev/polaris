@@ -31,6 +31,7 @@ const AcademyCourse = lazy(() => import("@/pages/AcademyCourse"));
 const AcademyExam = lazy(() => import("@/pages/AcademyExam"));
 const ActivityPage = lazy(() => import("@/pages/Activity"));
 const ProfileSettings = lazy(() => import("@/pages/ProfileSettings"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
 /* Admin Pages */
 const AdminPireps = lazy(() => import("@/pages/admin/AdminPireps"));
@@ -120,6 +121,7 @@ const App = () => (
                       <Route path="academy/course/:courseId" element={<AcademyCourse />} />
                       <Route path="activity" element={<ActivityPage />} />
                       <Route path="profile" element={<ProfileSettings />} />
+                      <Route path="/reset-password" element={<ResetPassword />} />
 
                       {/* ADMIN */}
                       <Route path="admin/pireps" element={<AdminPireps />} />
