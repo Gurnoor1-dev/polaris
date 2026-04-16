@@ -20,10 +20,7 @@ import { cn } from "@/lib/utils";
 import { formatPirepTime, sendDiscordEmbed } from "@/lib/discord-notify";
 
 const defaultOperators = [
-  "Aeroflot", "Azerbaijan Airlines", "Uzbekistan Airways", "Belavia",
-  "S7 Airlines", "AirBridge Cargo", "Saudia", "Emirates", "Fly Dubai",
-  "Emirates SkyCargo", "Aegean Airlines", "Qatar Airways",
-  "SunCountry Airlines", "IndiGo", "Oman Air",
+  "Korean Air",
 ];
 
 export default function FilePirep() {
