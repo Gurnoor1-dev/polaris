@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -39,7 +38,6 @@ export default function FilePirep() {
   const [otherOperatorName, setOtherOperatorName] = useState("");
   const [pax, setPax] = useState("");
   const [remarks, setRemarks] = useState("");
-  const [showAllAircraft, setShowAllAircraft] = useState(false);
   const [aircraftSearch, setAircraftSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAcarsLoading, setIsAcarsLoading] = useState(false);
@@ -53,12 +51,7 @@ export default function FilePirep() {
     if (arr) setArrIcao(arr);
     if (ac) setAircraftIcao(ac);
     if (fn) setFlightNumber(fn);
-    if (searchParams.has("event") || searchParams.has("rotw")) setShowAllAircraft(true);
   }, [searchParams]);
-
-  const isEventOrRotw = searchParams.has("event") || searchParams.has("rotw");
-
-  // ── Gate ALL queries on isReady so they never fire before session is set ──
 
   const { data: operators } = useQuery({
     queryKey: ["pirep-operators"],
@@ -94,20 +87,6 @@ export default function FilePirep() {
     },
   });
 
-  const { data: rankConfigs } = useQuery({
-    queryKey: ["rank-configs-all"],
-    enabled: isReady,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rank_configs")
-        .select("*")
-        .eq("is_active", true)
-        .order("order_index");
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
   const { data: multipliers, isLoading: multipliersLoading } = useQuery({
     queryKey: ["multiplier-configs"],
     enabled: isReady,
@@ -122,7 +101,6 @@ export default function FilePirep() {
     },
   });
 
-  // Seed the multiplier select once multipliers are loaded
   useEffect(() => {
     if (multipliers && multipliers.length > 0 && selectedMultiplier === "1") {
       const standard = multipliers.find(
@@ -132,29 +110,10 @@ export default function FilePirep() {
     }
   }, [multipliers]);
 
-  const unlockedAircraftIcaos = useMemo(() => {
-    if (!rankConfigs || !pilot?.current_rank) return null;
-    const pilotRank = rankConfigs.find((r) => r.name === pilot.current_rank);
-    if (!pilotRank) return null;
-    const unlocked = new Set<string>();
-    for (const rank of rankConfigs) {
-      if (rank.order_index <= pilotRank.order_index) {
-        const ac = (rank as any).aircraft_unlocks;
-        if (Array.isArray(ac))
-          ac.forEach((i: string) => unlocked.add(String(i).trim().toUpperCase()));
-      }
-    }
-    return unlocked.size > 0 ? Array.from(unlocked) : null;
-  }, [rankConfigs, pilot?.current_rank]);
-
   const availableAircraft = useMemo(() => {
     if (!aircraft) return [];
     let list = aircraft;
-    if (!isEventOrRotw && !showAllAircraft && unlockedAircraftIcaos) {
-      list = aircraft.filter((ac) =>
-        unlockedAircraftIcaos.includes(String(ac.icao_code || "").toUpperCase())
-      );
-    }
+    
     if (aircraftSearch.trim()) {
       const search = aircraftSearch.toLowerCase();
       list = list.filter(
@@ -165,7 +124,7 @@ export default function FilePirep() {
       );
     }
     return list;
-  }, [aircraft, isEventOrRotw, showAllAircraft, unlockedAircraftIcaos, aircraftSearch]);
+  }, [aircraft, aircraftSearch]);
 
   const aircraftLabelMap = useMemo(() => {
     if (!aircraft) return {} as Record<string, string>;
@@ -256,13 +215,10 @@ export default function FilePirep() {
         operator: finalOperator,
         flight_type: "passenger",
         pax: paxValue,
-        // Note: removed remarks_new — not in schema. Add status_reason or a
-        // real remarks column if you need to store free-text remarks.
       });
 
       if (error) throw error;
 
-      // Discord Notification
       const totalHoursWithMulti = totalDecimalHours * currentMultiplierValue;
 
       await sendDiscordEmbed({
@@ -285,7 +241,6 @@ export default function FilePirep() {
     ? `${aircraftLabelMap[aircraftIcao] || aircraftIcao} (${aircraftIcao})`
     : selectedAircraftLabel || "Select aircraft";
 
-  // Show a loading state while auth or data is settling
   if (!isReady) {
     return (
       <div className="max-w-2xl mx-auto pb-10 flex items-center justify-center min-h-[300px]">
@@ -308,22 +263,6 @@ export default function FilePirep() {
                 <CardDescription>Submit a new pilot report</CardDescription>
               </div>
             </div>
-            {!isEventOrRotw && (
-              <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-lg">
-                <Checkbox
-                  id="rotw-fr-e"
-                  checked={showAllAircraft}
-                  onCheckedChange={(checked) => {
-                    setShowAllAircraft(Boolean(checked));
-                    setAircraftSearch("");
-                  }}
-                  disabled={isLoading}
-                />
-                <Label htmlFor="rotw-fr-e" className="text-xs font-bold cursor-pointer">
-                  ROTW/FR/E
-                </Label>
-              </div>
-            )}
           </div>
         </CardHeader>
         <CardContent>
