@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox"; // Added back
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -38,6 +39,7 @@ export default function FilePirep() {
   const [otherOperatorName, setOtherOperatorName] = useState("");
   const [pax, setPax] = useState("");
   const [remarks, setRemarks] = useState("");
+  const [showAllAircraft, setShowAllAircraft] = useState(false); // Added back
   const [aircraftSearch, setAircraftSearch] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAcarsLoading, setIsAcarsLoading] = useState(false);
@@ -51,6 +53,8 @@ export default function FilePirep() {
     if (arr) setArrIcao(arr);
     if (ac) setAircraftIcao(ac);
     if (fn) setFlightNumber(fn);
+    // Sync checkbox with URL params for consistency
+    if (searchParams.has("event") || searchParams.has("rotw")) setShowAllAircraft(true);
   }, [searchParams]);
 
   const { data: operators } = useQuery({
@@ -112,7 +116,7 @@ export default function FilePirep() {
 
   const availableAircraft = useMemo(() => {
     if (!aircraft) return [];
-    let list = aircraft;
+    let list = aircraft; // No rank filtering logic here
     
     if (aircraftSearch.trim()) {
       const search = aircraftSearch.toLowerCase();
@@ -262,6 +266,18 @@ export default function FilePirep() {
                 <CardTitle>File PIREP</CardTitle>
                 <CardDescription>Submit a new pilot report</CardDescription>
               </div>
+            </div>
+            {/* Added back ROTW Checkbox */}
+            <div className="flex items-center space-x-2 bg-muted/50 p-2 rounded-lg">
+              <Checkbox
+                id="rotw-fr-e"
+                checked={showAllAircraft}
+                onCheckedChange={(checked) => setShowAllAircraft(Boolean(checked))}
+                disabled={isLoading}
+              />
+              <Label htmlFor="rotw-fr-e" className="text-xs font-bold cursor-pointer">
+                ROTW/FR/E
+              </Label>
             </div>
           </div>
         </CardHeader>
